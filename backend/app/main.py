@@ -38,6 +38,7 @@ from app.services.geo_ip import lookup_ip
 from app.services.offline_analytics import build_full_analytics
 from app.services.qr_codes import qr_png_bytes
 from app.services.image_store import is_safe_media_filename, is_safe_run_id
+from app.services.chat import route_query
 
 
 @asynccontextmanager
@@ -453,6 +454,50 @@ async def serve_campaign_media(run_id: str, filename: str):
     if not target.is_file():
         raise HTTPException(status_code=404, detail="Not found")
     return FileResponse(target)
+
+
+# --- Chat / Ask Agent ---
+@app.post("/api/chat/query")
+async def chat_query(request: Request):
+    uid = _get_uid(request)
+    body = await request.json()
+    query = body.get("query", "").strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="Query is required")
+
+    brand_name = body.get("brand_name")
+    brand_url = body.get("brand_url")
+    campaign_id = body.get("campaign_id")
+
+    # Load existing campaign context if a campaign is selected
+    campaign_context = None
+    if campaign_id:
+        c = await fb.get_campaign(campaign_id)
+        if c:
+            campaign_context = {
+                "artifacts": c.get("artifacts", {}),
+                "request": c.get("request", {}),
+            }
+
+    settings: Settings = request.app.state.settings
+    client: AsyncOpenAI = request.app.state.openai
+
+    return StreamingResponse(
+        route_query(
+            client=client,
+            settings=settings,
+            query=query,
+            brand_name=brand_name,
+            brand_url=brand_url,
+            campaign_context=campaign_context,
+        ),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # --- SSE Stream ---
