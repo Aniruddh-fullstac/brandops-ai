@@ -11,6 +11,7 @@ import {
   Shield,
   LogOut,
   Sparkles,
+  QrCode,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -22,6 +23,7 @@ const NAV = [
   { to: "/content", icon: FileText, label: "Content" },
   { to: "/calendar", icon: CalendarDays, label: "Calendar" },
   { to: "/performance", icon: TrendingUp, label: "Performance" },
+  { to: "/offline", icon: QrCode, label: "QR offline" },
   { to: "/notifications", icon: Bell, label: "Alerts" },
   { to: "/admin", icon: Shield, label: "Admin" },
 ];

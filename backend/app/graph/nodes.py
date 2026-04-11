@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 from typing import Any
 
@@ -66,6 +67,8 @@ def build_node_context(state: CampaignState) -> str:
         parts.append(f"Industry hint: {r.industry_hint}")
     if r.brand_url:
         parts.append(f"Official URL: {r.brand_url}")
+    if r.instagram_handle:
+        parts.append(f"Brand Instagram: @{r.instagram_handle.lstrip('@')}")
     if r.additional_context:
         parts.append("User-provided documents/context:\n" + r.additional_context[:8000])
     if state.get("brand_page_text"):
@@ -308,21 +311,325 @@ async def _trends_agent(state: CampaignState, client: AsyncOpenAI, settings: Set
     }
 
 
+async def _brand_instagram_agent(
+    state: CampaignState, client: AsyncOpenAI, settings: Settings
+) -> dict[str, Any]:
+    """
+    Fetch brand's own Instagram: post metrics, comment sentiment,
+    and vision analysis of top-performing posts.
+    """
+    r = _req(state)
+    handle = (r.instagram_handle or "").strip().lstrip("@")
+
+    if not handle:
+        return {
+            "instagram_data": {},
+            "trace": [
+                AgentTraceStep(
+                    id=_tid(),
+                    agent="brand_instagram_analyst",
+                    phase="research",
+                    title="Brand Instagram skipped",
+                    summary="No Instagram handle provided; skipping brand social analysis.",
+                ).model_dump()
+            ],
+        }
+
+    # Run sync instagrapi calls in a thread
+    try:
+        from app.services.instagrapi_service import get_trending_posts_with_comments
+        raw = await asyncio.to_thread(
+            get_trending_posts_with_comments,
+            handle,
+            20,   # max_posts
+            5,    # top_n for comment fetch
+            40,   # max_comments per post
+            50,   # engagement threshold
+        )
+    except Exception as exc:
+        return {
+            "instagram_data": {"error": str(exc)},
+            "trace": [
+                AgentTraceStep(
+                    id=_tid(),
+                    agent="brand_instagram_analyst",
+                    phase="research",
+                    title="Brand Instagram fetch failed",
+                    summary=str(exc),
+                    reasoning="instagrapi could not reach the account; analysis skipped.",
+                ).model_dump()
+            ],
+        }
+
+    top_posts = raw.get("top_posts_with_comments") or []
+    all_posts = raw.get("all_posts") or []
+    fetch_error = raw.get("error")
+
+    # ── Sentiment analysis on collected comments ──────────────────────────
+    all_comments: list[str] = []
+    for p in top_posts:
+        for c in p.get("comments_text") or []:
+            txt = (c.get("text") or "").strip()
+            if txt:
+                all_comments.append(txt)
+
+    sentiment_blob: dict[str, Any] = {}
+    if all_comments:
+        sentiment_blob = await chat_json_object(
+            client=client,
+            model=settings.openai_model_fast,
+            system=(
+                "You are a social media sentiment analyst. Analyse the Instagram comments "
+                "for this brand. Return JSON: "
+                "overall_sentiment (positive/mixed/negative), "
+                "sentiment_score (float -1 to 1), "
+                "positive_themes (array of strings), "
+                "negative_themes (array of strings), "
+                "neutral_themes (array of strings), "
+                "top_praised_aspects (array), "
+                "top_complaints (array), "
+                "audience_language_patterns (array of strings — recurring phrases/slang), "
+                "emotional_tone (string), "
+                "statistics (object: total_comments_analysed, pct_positive, pct_negative, pct_neutral), "
+                "reasoning_summary (string)."
+            ),
+            user=(
+                f"Brand: {r.brand_name}\n"
+                f"Total comments analysed: {len(all_comments)}\n\n"
+                "Comments (newest first):\n"
+                + "\n".join(f"- {c}" for c in all_comments[:200])
+            ),
+            temperature=0.2,
+        )
+
+    # ── Overall Instagram performance summary ─────────────────────────────
+    post_summary = await chat_json_object(
+        client=client,
+        model=settings.openai_model_fast,
+        system=(
+            "You are an Instagram content strategist. Summarise this brand's Instagram performance. "
+            "Return JSON: content_themes (array), top_performing_formats (array), "
+            "avg_engagement (string), visual_style_notes (string), "
+            "caption_patterns (array), best_posting_patterns (array), "
+            "growth_signals (array), strategic_recommendations (array), "
+            "reasoning_summary (string)."
+        ),
+        user=(
+            f"Handle: @{handle}\n"
+            f"Followers: {raw.get('followers')}\n"
+            f"Total posts sampled: {raw.get('posts_fetched')}\n"
+            f"Average likes: {raw.get('average_likes')}\n\n"
+            "Top posts (by engagement):\n"
+            + json.dumps(
+                [
+                    {k: v for k, v in p.items() if k != "comments_text"}
+                    for p in top_posts
+                ],
+                default=str,
+            )[:8000]
+        ),
+        temperature=0.3,
+    )
+
+    analysis = {
+        "handle": handle,
+        "profile": {
+            "followers": raw.get("followers"),
+            "following": raw.get("following"),
+            "bio": raw.get("bio"),
+        },
+        "posts_fetched": raw.get("posts_fetched", 0),
+        "average_likes": raw.get("average_likes", 0),
+        "total_video_views": raw.get("total_video_views", 0),
+        "top_posts": [
+            {k: v for k, v in p.items() if k != "comments_text"}
+            for p in top_posts
+        ],
+        "all_posts_ranked": [
+            {k: v for k, v in p.items() if k != "comments_text"}
+            for p in (all_posts[:12])
+        ],
+        "comments_analysed": len(all_comments),
+        "sentiment": sentiment_blob,
+        "post_strategy_summary": post_summary,
+        "fetch_error": fetch_error,
+    }
+
+    return {
+        "instagram_data": analysis,
+        "trace": [
+            AgentTraceStep(
+                id=_tid(),
+                agent="brand_instagram_analyst",
+                phase="research",
+                title=f"Brand Instagram deep-dive — @{handle}",
+                summary=post_summary.get("reasoning_summary"),
+                reasoning=(
+                    f"Fetched {raw.get('posts_fetched', 0)} posts; "
+                    f"analysed {len(all_comments)} comments across top {len(top_posts)} posts. "
+                    f"Sentiment: {sentiment_blob.get('overall_sentiment', 'n/a')} "
+                    f"(score {sentiment_blob.get('sentiment_score', 'n/a')}). "
+                    "Instagram data will anchor visual style choices and caption tone in the creative phase."
+                ),
+                structured={
+                    "sentiment": sentiment_blob.get("statistics"),
+                    "top_formats": post_summary.get("top_performing_formats"),
+                    "avg_likes": raw.get("average_likes"),
+                    "followers": raw.get("followers"),
+                },
+            ).model_dump()
+        ],
+    }
+
+
+async def _competitor_instagram_agent(
+    state: CampaignState, client: AsyncOpenAI, settings: Settings
+) -> dict[str, Any]:
+    """
+    Discover competitor Instagram handles via LLM web search,
+    fetch their posts + comments, and surface what works for them.
+    """
+    r = _req(state)
+    ctx = build_node_context(state)
+
+    # Step 1: find competitor handles with a web-search-backed LLM call
+    handles_resp = await chat_json_object(
+        client=client,
+        model=settings.openai_model_fast,
+        system=(
+            "You are a competitive intelligence researcher. "
+            "Identify the 3 most direct competitors for this brand and find their Instagram handles. "
+            "Return JSON: competitors (array of {name, instagram_handle, reason})."
+        ),
+        user=(
+            ctx
+            + f"\n\nBrand: {r.brand_name}. Industry hint: {r.industry_hint or 'unknown'}. "
+            "Provide ONLY real handles that exist on Instagram (no placeholders)."
+        ),
+        temperature=0.2,
+    )
+
+    competitors_meta = (handles_resp.get("competitors") or [])[:3]
+
+    # Step 2: fetch each competitor's posts + comments concurrently
+    async def _fetch_one(meta: dict[str, Any]) -> dict[str, Any]:
+        name = meta.get("name", "")
+        raw_handle = (meta.get("instagram_handle") or "").strip().lstrip("@")
+        if not raw_handle:
+            return {"name": name, "handle": None, "error": "no handle"}
+        try:
+            from app.services.instagrapi_service import get_trending_posts_with_comments
+            raw = await asyncio.to_thread(
+                get_trending_posts_with_comments,
+                raw_handle,
+                15,   # max_posts
+                3,    # top_n for comments
+                30,   # max_comments
+                30,   # threshold
+            )
+            return {"name": name, "handle": raw_handle, **raw}
+        except Exception as exc:
+            return {"name": name, "handle": raw_handle, "error": str(exc)}
+
+    competitor_raw_list = await asyncio.gather(*[_fetch_one(m) for m in competitors_meta])
+
+    # Step 3: LLM sentiment + "what works" analysis
+    analysis_input = []
+    for comp in competitor_raw_list:
+        if comp.get("error"):
+            continue
+        all_comments: list[str] = []
+        for p in (comp.get("top_posts_with_comments") or []):
+            for c in (p.get("comments_text") or []):
+                if c.get("text"):
+                    all_comments.append(c["text"])
+        analysis_input.append(
+            {
+                "name": comp["name"],
+                "handle": comp["handle"],
+                "followers": comp.get("followers"),
+                "average_likes": comp.get("average_likes"),
+                "top_posts": [
+                    {k: v for k, v in p.items() if k != "comments_text"}
+                    for p in (comp.get("top_posts_with_comments") or [])
+                ],
+                "sample_comments": all_comments[:60],
+            }
+        )
+
+    competitor_analysis: dict[str, Any] = {}
+    if analysis_input:
+        competitor_analysis = await chat_json_object(
+            client=client,
+            model=settings.openai_model_fast,
+            system=(
+                "You are a competitive Instagram strategist. Analyse competitor data and surface actionable insights. "
+                "Return JSON: "
+                "competitor_profiles (array of {name, handle, followers, avg_likes, "
+                "content_themes, caption_style, what_resonates, audience_sentiment, sentiment_score}), "
+                "industry_engagement_benchmarks (object: avg_likes, avg_comments, top_content_type), "
+                "winning_tactics (array of strings — what competitors do that drives engagement), "
+                "gap_opportunities (array of strings — angles competitors miss that this brand could own), "
+                "hashtag_patterns (array), "
+                "reasoning_summary (string)."
+            ),
+            user="Competitor Instagram data:\n" + json.dumps(analysis_input, default=str)[:12_000],
+            temperature=0.25,
+        )
+
+    return {
+        "competitor_instagram": {
+            "competitors_found": [m.get("name") for m in competitors_meta],
+            "raw_data": [
+                {k: v for k, v in c.items() if k not in ("all_posts", "top_posts_with_comments")}
+                for c in competitor_raw_list
+            ],
+            "analysis": competitor_analysis,
+        },
+        "trace": [
+            AgentTraceStep(
+                id=_tid(),
+                agent="competitor_instagram_analyst",
+                phase="research",
+                title="Competitor Instagram benchmarking",
+                summary=competitor_analysis.get("reasoning_summary"),
+                reasoning=(
+                    f"Searched for Instagram handles of {len(competitors_meta)} competitors; "
+                    f"successfully fetched data for {sum(1 for c in competitor_raw_list if not c.get('error'))}. "
+                    "Engagement benchmarks and gap opportunities will inform creative differentiation strategy."
+                ),
+                structured={
+                    "competitors": competitor_analysis.get("competitor_profiles"),
+                    "gap_opportunities": competitor_analysis.get("gap_opportunities"),
+                    "benchmarks": competitor_analysis.get("industry_engagement_benchmarks"),
+                },
+            ).model_dump()
+        ],
+    }
+
+
 async def node_parallel_research(
     state: CampaignState, *, client: AsyncOpenAI, settings: Settings
 ) -> dict[str, Any]:
-    c, s, t = await asyncio.gather(
+    c, s, t, b_ig, comp_ig = await asyncio.gather(
         _competitor_agent(state, client, settings),
         _social_agent(state, client, settings),
         _trends_agent(state, client, settings),
+        _brand_instagram_agent(state, client, settings),
+        _competitor_instagram_agent(state, client, settings),
     )
-    trace = c["trace"] + s["trace"] + t["trace"]
+    trace = (
+        c["trace"] + s["trace"] + t["trace"]
+        + b_ig["trace"] + comp_ig["trace"]
+    )
     return {
         "trace": trace,
         "competitor_research": c["packet"],
         "social_research": s["packet"],
         "trends_research": t["packet"],
         "reddit_snapshot": s.get("reddit", {}),
+        "brand_instagram_analysis": b_ig.get("instagram_data", {}),
+        "competitor_instagram_analysis": comp_ig.get("competitor_instagram", {}),
     }
 
 
@@ -332,6 +639,28 @@ def _research_digest(state: CampaignState) -> str:
         blob = state.get(key) or {}
         parts.append(f"## {key}\n" + (blob.get("narrative") or "")[:5000])
         parts.append("Structured JSON:\n" + str(blob.get("structured"))[:4000])
+
+    # Brand Instagram
+    b_ig = state.get("brand_instagram_analysis") or {}
+    if b_ig and not b_ig.get("fetch_error"):
+        parts.append(
+            "## Brand Instagram Analysis\n"
+            f"Handle: @{b_ig.get('handle', 'n/a')}  |  "
+            f"Followers: {b_ig.get('profile', {}).get('followers', 'n/a')}  |  "
+            f"Avg likes: {b_ig.get('average_likes', 'n/a')}\n"
+            f"Comments analysed: {b_ig.get('comments_analysed', 0)}\n"
+            "Sentiment: " + json.dumps(b_ig.get("sentiment", {}), default=str)[:2000] + "\n"
+            "Post strategy summary: " + json.dumps(b_ig.get("post_strategy_summary", {}), default=str)[:2000]
+        )
+
+    # Competitor Instagram
+    comp_ig = state.get("competitor_instagram_analysis") or {}
+    if comp_ig:
+        parts.append(
+            "## Competitor Instagram Analysis\n"
+            + json.dumps(comp_ig.get("analysis", {}), default=str)[:4000]
+        )
+
     return "\n\n".join(parts)
 
 
@@ -381,10 +710,62 @@ async def _creative_json(
     )
 
 
+def _instagram_creative_context(state: CampaignState) -> str:
+    """
+    Build a focused Instagram context block for creative prompts.
+    Explains WHAT the brand's own account does well, what competitors do,
+    and what the audience actually says in comments.
+    """
+    parts: list[str] = []
+
+    b_ig = state.get("brand_instagram_analysis") or {}
+    if b_ig and b_ig.get("post_strategy_summary"):
+        ps = b_ig["post_strategy_summary"]
+        sentiment = b_ig.get("sentiment") or {}
+        parts.append(
+            "=== BRAND INSTAGRAM INTELLIGENCE ===\n"
+            f"Handle: @{b_ig.get('handle', 'n/a')}  "
+            f"Followers: {b_ig.get('profile', {}).get('followers', 'n/a')}  "
+            f"Avg likes: {b_ig.get('average_likes', 'n/a')}\n"
+            f"Top performing formats: {ps.get('top_performing_formats', [])}\n"
+            f"Visual style: {ps.get('visual_style_notes', '')}\n"
+            f"Caption patterns: {ps.get('caption_patterns', [])}\n"
+            f"Strategic recs from own feed: {ps.get('strategic_recommendations', [])}\n\n"
+            "AUDIENCE COMMENT SENTIMENT:\n"
+            f"  Overall: {sentiment.get('overall_sentiment', 'n/a')} "
+            f"(score: {sentiment.get('sentiment_score', 'n/a')})\n"
+            f"  Praised for: {sentiment.get('top_praised_aspects', [])}\n"
+            f"  Complaints: {sentiment.get('top_complaints', [])}\n"
+            f"  Audience language / slang: {sentiment.get('audience_language_patterns', [])}\n"
+            f"  Emotional tone: {sentiment.get('emotional_tone', 'n/a')}\n"
+            f"  Stats: {sentiment.get('statistics', {})}"
+        )
+
+    comp_ig = (state.get("competitor_instagram_analysis") or {}).get("analysis") or {}
+    if comp_ig:
+        parts.append(
+            "=== COMPETITOR INSTAGRAM INTELLIGENCE ===\n"
+            f"Winning tactics competitors use: {comp_ig.get('winning_tactics', [])}\n"
+            f"Gap opportunities (angles competitors miss): {comp_ig.get('gap_opportunities', [])}\n"
+            f"Industry engagement benchmarks: {comp_ig.get('industry_engagement_benchmarks', {})}\n"
+            f"Hashtag patterns: {comp_ig.get('hashtag_patterns', [])}"
+        )
+
+    if not parts:
+        return ""
+    return "\n\n".join(parts)
+
+
 async def node_creative_suite(state: CampaignState, *, client: AsyncOpenAI, settings: Settings) -> dict[str, Any]:
     r = _req(state)
     base = build_node_context(state) + "\n\nStrategy JSON:\n" + str(state.get("strategy"))[:10_000]
     digest = _research_digest(state)[:8000]
+    ig_ctx = _instagram_creative_context(state)
+
+    ig_instruction = (
+        "\n\nINSTAGRAM INTELLIGENCE (use this to inform creative decisions and cite it in reasoning_summary):\n"
+        + ig_ctx
+    ) if ig_ctx else ""
 
     seo_task = _creative_json(
         client=client,
@@ -394,21 +775,30 @@ async def node_creative_suite(state: CampaignState, *, client: AsyncOpenAI, sett
             "Return JSON: pillar_topics (array), cluster_map, target_keywords (array of {keyword, intent, page_type}), "
             "blog_outline (array of sections), meta_templates, internal_linking_plan, reasoning_summary."
         ),
-        user_blob=base + "\nResearch:\n" + digest,
+        user_blob=base + "\nResearch:\n" + digest + ig_instruction,
     )
     social_task = _creative_json(
         client=client,
         settings=settings,
-        role="You are a social creative director.",
+        role=(
+            "You are a social creative director with deep Instagram expertise. "
+            "When writing Instagram content, explicitly apply the brand's own posting patterns and "
+            "audience language from the Instagram intelligence section. "
+            "Call out in reasoning_summary: (a) which caption patterns you used, "
+            "(b) which competitor gap you are exploiting, "
+            "(c) how audience sentiment shaped the tone."
+        ),
         system_schema=(
-            "Return JSON: linkedin (array of posts with hook, body, cta), instagram (array of carousel ideas), "
+            "Return JSON: linkedin (array of posts with hook, body, cta), "
+            "instagram (array of {idea, caption, hashtags, format, visual_direction, reasoning — "
+            "  reasoning must cite brand Instagram data and competitor gaps}), "
             "tiktok_or_reels (array of {hook, beat_sheet, on_screen_text}), "
             "twitter (array of {text, hashtags}), "
             "email_broadcasts (array of {subject, preheader, body}), "
             "push_notifications (array of {title, body, trigger_context}), "
-            "reasoning_summary."
+            "reasoning_summary (must reference Instagram sentiment findings and competitor gaps)."
         ),
-        user_blob=base + "\nResearch:\n" + digest,
+        user_blob=base + "\nResearch:\n" + digest + ig_instruction,
     )
     video_task = _creative_json(
         client=client,
@@ -418,7 +808,7 @@ async def node_creative_suite(state: CampaignState, *, client: AsyncOpenAI, sett
             "Return JSON: hero_spot (object with logline, scenes), product_demo_variants (array), "
             "ugc_briefs (array), production_notes, reasoning_summary."
         ),
-        user_blob=base + "\nResearch:\n" + digest,
+        user_blob=base + "\nResearch:\n" + digest + ig_instruction,
     )
     msg_task = _creative_json(
         client=client,
@@ -428,17 +818,31 @@ async def node_creative_suite(state: CampaignState, *, client: AsyncOpenAI, sett
             "Return JSON: whatsapp_sequences (array of {name, messages:[{text, timing, cta}]}), "
             "sms_companion (array), compliance_notes, reasoning_summary."
         ),
-        user_blob=base + "\nResearch:\n" + digest,
+        user_blob=base + "\nResearch:\n" + digest + ig_instruction,
     )
     seo, social, video, msg = await asyncio.gather(seo_task, social_task, video_task, msg_task)
     bundle = {"seo": seo, "social": social, "video_concepts": video, "messaging_whatsapp": msg}
+
+    b_ig = state.get("brand_instagram_analysis") or {}
+    comp_ig = (state.get("competitor_instagram_analysis") or {}).get("analysis") or {}
     return {
         **_trace_step(
             agent="creative_suite_orchestrator",
             phase="creative",
             title="Parallel channel copy generation",
             summary="SEO, social, video beats, and WhatsApp flows generated with shared strategy context.",
-            reasoning="Runs four specialists concurrently after research-backed strategy to protect brand coherence.",
+            reasoning=(
+                "Runs four specialists concurrently after research-backed strategy. "
+                + (
+                    f"Brand Instagram (@{b_ig.get('handle')}) sentiment: "
+                    f"{(b_ig.get('sentiment') or {}).get('overall_sentiment', 'n/a')} — "
+                    f"audience praised: {(b_ig.get('sentiment') or {}).get('top_praised_aspects', [])}. "
+                    f"Competitor gaps exploited: {comp_ig.get('gap_opportunities', [])}. "
+                    "Instagram intelligence shaped caption style, visual direction, and hashtag strategy."
+                    if b_ig.get("handle") else
+                    "No Instagram handle provided; creative strategy based on web research and strategy alone."
+                )
+            ),
             structured={"channels": list(bundle.keys())},
         ),
         "creatives": bundle,
@@ -863,6 +1267,8 @@ async def node_finalize(state: CampaignState, *, client: AsyncOpenAI, settings: 
         content_schedule=state.get("content_schedule") or {},
         image_prompts=state.get("image_prompts") or [],
         image_urls=state.get("image_urls") or [],
+        brand_instagram_analysis=state.get("brand_instagram_analysis") or {},
+        competitor_instagram_analysis=state.get("competitor_instagram_analysis") or {},
     )
     return {
         **_trace_step(

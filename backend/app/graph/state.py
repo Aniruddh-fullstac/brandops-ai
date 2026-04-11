@@ -17,6 +17,8 @@ class CampaignState(TypedDict, total=False):
     social_research: dict[str, Any]
     trends_research: dict[str, Any]
     reddit_snapshot: dict[str, Any]
+    brand_instagram_analysis: dict[str, Any]
+    competitor_instagram_analysis: dict[str, Any]
 
     strategy: dict[str, Any]
     creatives: dict[str, Any]

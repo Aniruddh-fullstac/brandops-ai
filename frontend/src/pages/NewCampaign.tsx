@@ -46,6 +46,7 @@ export default function NewCampaign() {
         const body = {
           brand_name: brandName,
           brand_url: (fd.get("brand_url") as string)?.trim() || null,
+          instagram_handle: (fd.get("instagram_handle") as string)?.trim().replace(/^@/, "") || null,
           additional_context: (fd.get("additional_context") as string)?.trim() || null,
           geography_primary: (fd.get("geo1") as string)?.trim() || "United States",
           geography_secondary: (fd.get("geo2") as string)?.trim() || "India",
@@ -119,6 +120,20 @@ export default function NewCampaign() {
           <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
             Brand URL
             <input name="brand_url" className={ic} placeholder="https://..." />
+          </label>
+          <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Instagram handle
+            <div className="relative mt-1">
+              <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-slate-400 text-sm">@</span>
+              <input
+                name="instagram_handle"
+                className={`${ic} pl-7 mt-0`}
+                placeholder="yourbrand"
+              />
+            </div>
+            <span className="text-[10px] font-normal normal-case text-slate-400">
+              Used for post metrics, comment sentiment &amp; competitor Instagram benchmarking.
+            </span>
           </label>
           <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
             Documents / brief

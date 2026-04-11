@@ -49,6 +49,11 @@ class AgentTraceStep(BaseModel):
 class CampaignRequest(BaseModel):
     brand_name: str = Field(..., min_length=1, max_length=200)
     brand_url: HttpUrl | None = None
+    instagram_handle: str | None = Field(
+        None,
+        max_length=100,
+        description="Brand's Instagram handle (without @). Used for post + comment analysis.",
+    )
     additional_context: str | None = Field(None, max_length=120_000)
     geography_primary: str = Field("United States", max_length=120)
     geography_secondary: str = Field("India", max_length=120)
@@ -79,6 +84,14 @@ class CampaignArtifacts(BaseModel):
     )
     image_prompts: list[str] = Field(default_factory=list)
     image_urls: list[str] = Field(default_factory=list)
+    brand_instagram_analysis: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Brand's own Instagram: post metrics, top-post vision analysis, sentiment from comments.",
+    )
+    competitor_instagram_analysis: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Competitor Instagram handles, engagement benchmarks, and comment sentiment.",
+    )
 
 
 class CampaignResult(BaseModel):

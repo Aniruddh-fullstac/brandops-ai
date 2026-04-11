@@ -12,6 +12,8 @@ import CampaignCalendar from "./pages/CampaignCalendar";
 import PerformanceSimulation from "./pages/PerformanceSimulation";
 import Notifications from "./pages/Notifications";
 import AdminDashboard from "./pages/AdminDashboard";
+import OfflineCampaigns from "./pages/OfflineCampaigns";
+import PublicOfflineLanding from "./pages/PublicOfflineLanding";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -33,6 +35,7 @@ export default function App() {
         <CampaignStoreProvider>
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/p/:slug" element={<PublicOfflineLanding />} />
             <Route
               element={
                 <RequireAuth>
@@ -48,6 +51,7 @@ export default function App() {
               <Route path="calendar" element={<CampaignCalendar />} />
               <Route path="performance" element={<PerformanceSimulation />} />
               <Route path="notifications" element={<Notifications />} />
+              <Route path="offline" element={<OfflineCampaigns />} />
               <Route path="admin" element={<AdminDashboard />} />
             </Route>
           </Routes>

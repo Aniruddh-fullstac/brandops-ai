@@ -45,6 +45,15 @@ class Settings(BaseSettings):
     http_timeout_s: float = Field(25.0, alias="HTTP_TIMEOUT_S")
     max_brand_page_chars: int = Field(48_000, alias="MAX_BRAND_PAGE_CHARS")
     cors_origins: str = Field("http://localhost:5173", alias="CORS_ORIGINS")
+    # Used in QR payloads and CORS for public landing (scan → open app URL).
+    public_app_url: str = Field("http://localhost:5173", alias="PUBLIC_APP_URL")
+
+    # Instagram (instagrapi) — use a secondary/burner account
+    instagrapi_username: str = Field("", alias="INSTAGRAPI_USERNAME")
+    instagrapi_password: str = Field("", alias="INSTAGRAPI_PASSWORD")
+    instagrapi_session_file: str = Field(
+        "backend/instagrapi_session.json", alias="INSTAGRAPI_SESSION_FILE"
+    )
 
     @property
     def cors_origin_list(self) -> list[str]:

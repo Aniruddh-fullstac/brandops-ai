@@ -29,3 +29,9 @@ networkx>=3.4.2
 
 # Scheduling
 python-dateutil>=2.9.0
+
+# QR codes (offline campaigns)
+segno>=1.6.1
+
+# Instagram (unofficial mobile-API client — uses a secondary account)
+instagrapi>=2.1.2
