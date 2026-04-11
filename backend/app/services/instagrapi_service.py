@@ -18,16 +18,100 @@ Session is cached to INSTAGRAPI_SESSION_FILE so re-logins are minimal.
 from __future__ import annotations
 
 import logging
+import random
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
+
+
+def _log_handle_stats_failure(handle: str, exc: BaseException) -> None:
+    """Instagram often returns long challenge/blacklist text; avoid spamming ERROR for expected blocks."""
+    msg = str(exc).lower()
+    short = str(exc)
+    if len(short) > 220:
+        short = short[:217] + "..."
+    if any(
+        x in msg
+        for x in (
+            "blacklist",
+            "facebook account",
+            "challenge_required",
+            "login_required",
+            "please wait",
+            "rate limit",
+        )
+    ):
+        logger.warning(
+            "get_handle_stats(%s): Instagram blocked or challenged this session/IP (%s)",
+            handle,
+            short,
+        )
+    else:
+        logger.error("get_handle_stats(%s): %s", handle, exc)
+
 
 # ---------------------------------------------------------------------------
 # Lazy singleton client — one login per process
 # ---------------------------------------------------------------------------
 
 _client = None
+
+
+def _redact_proxy_url(dsn: str | None) -> str:
+    if not dsn:
+        return "direct"
+    try:
+        u = urlparse(dsn)
+        if u.username:
+            port = f":{u.port}" if u.port else ""
+            host = u.hostname or ""
+            return f"{u.scheme}://{u.username}:***@{host}{port}"
+        return dsn
+    except Exception:
+        return "<proxy>"
+
+
+def _new_instagrapi_client(proxy_dsn: str | None):
+    from instagrapi import Client
+
+    cl = Client()
+    cl.delay_range = [1, 3]
+    if proxy_dsn:
+        cl.set_proxy(proxy_dsn)
+    return cl
+
+
+def _attempt_login(
+    proxy: str | None,
+    username: str,
+    password: str,
+    session_path: Path,
+):
+    def fresh() -> Any:
+        return _new_instagrapi_client(proxy)
+
+    cl = fresh()
+    if session_path.is_file():
+        try:
+            cl.load_settings(session_path)
+            cl.login(username, password)
+            logger.info("instagrapi: session loaded from %s", session_path)
+            return cl
+        except Exception as exc:
+            logger.warning("instagrapi: cached session invalid (%s) — fresh login", exc)
+            cl = fresh()
+
+    cl.login(username, password)
+    session_path.parent.mkdir(parents=True, exist_ok=True)
+    cl.dump_settings(session_path)
+    logger.info(
+        "instagrapi: fresh login as %s; session saved to %s",
+        username,
+        session_path,
+    )
+    return cl
 
 
 def _get_client():
@@ -37,15 +121,15 @@ def _get_client():
         return _client
 
     try:
-        from instagrapi import Client
+        from instagrapi import Client  # noqa: F401
     except ImportError as exc:
         raise RuntimeError(
             "instagrapi is not installed. Run: pip install instagrapi"
         ) from exc
 
     from app.config import get_settings
-    s = get_settings()
 
+    s = get_settings()
     username = s.instagrapi_username
     password = s.instagrapi_password
     session_path = Path(s.instagrapi_session_file)
@@ -55,28 +139,38 @@ def _get_client():
             "Set INSTAGRAPI_USERNAME and INSTAGRAPI_PASSWORD in .env to enable Instagram lookup."
         )
 
-    cl = Client()
-    cl.delay_range = [1, 3]
+    proxies = list(s.instagrapi_proxy_list)
+    if not proxies:
+        proxies = [None]
 
-    if session_path.is_file():
+    random.shuffle(proxies)
+    last_exc: BaseException | None = None
+    for proxy in proxies:
         try:
-            cl.load_settings(session_path)
-            cl.login(username, password)
-            logger.info("instagrapi: session loaded from %s", session_path)
+            cl = _attempt_login(proxy, username, password, session_path)
             _client = cl
+            logger.info("instagrapi: using %s", _redact_proxy_url(proxy))
             return _client
         except Exception as exc:
-            logger.warning("instagrapi: cached session invalid (%s) — fresh login", exc)
-            cl = Client()
-            cl.delay_range = [1, 3]
+            last_exc = exc
+            logger.warning(
+                "instagrapi: login failed via %s: %s",
+                _redact_proxy_url(proxy),
+                exc,
+            )
+    assert last_exc is not None
+    raise last_exc
 
-    cl.login(username, password)
-    session_path.parent.mkdir(parents=True, exist_ok=True)
-    cl.dump_settings(session_path)
-    logger.info("instagrapi: fresh login as %s; session saved to %s", username, session_path)
 
-    _client = cl
-    return _client
+def clear_instagrapi_client() -> None:
+    """Clear cached client (e.g. after changing INSTAGRAPI_PROXIES). Prefer restarting the process."""
+    global _client
+    _client = None
+
+
+def get_instagrapi_client():
+    """Return the shared logged-in instagrapi Client."""
+    return _get_client()
 
 
 # ---------------------------------------------------------------------------
@@ -165,7 +259,7 @@ def get_handle_stats(
 
     except Exception as exc:
         result["error"] = str(exc)
-        logger.error("get_handle_stats(%s): %s", handle, exc)
+        _log_handle_stats_failure(handle, exc)
 
     return result
 

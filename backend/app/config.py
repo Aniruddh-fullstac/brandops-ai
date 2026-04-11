@@ -1,7 +1,8 @@
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import urlparse
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -54,10 +55,36 @@ class Settings(BaseSettings):
     instagrapi_session_file: str = Field(
         "backend/instagrapi_session.json", alias="INSTAGRAPI_SESSION_FILE"
     )
+    # Comma- or newline-separated HTTP(S) proxy URLs (real hostname, not the word "host").
+    instagrapi_proxies: str = Field("", alias="INSTAGRAPI_PROXIES")
+
+    @field_validator("instagrapi_proxies", mode="after")
+    @classmethod
+    def instagrapi_proxies_not_placeholder(cls, v: str) -> str:
+        if not (v or "").strip():
+            return v
+        for part in v.replace("\n", ",").split(","):
+            p = part.strip()
+            if not p:
+                continue
+            u = urlparse(p)
+            hn = (u.hostname or "").lower()
+            if hn == "host":
+                raise ValueError(
+                    "INSTAGRAPI_PROXIES uses the placeholder hostname 'host' (DNS cannot resolve it). "
+                    "Paste the real proxy hostname from your provider, e.g. "
+                    "http://USER:PASS@gw.example-proxy.com:8080 — or remove INSTAGRAPI_PROXIES to connect directly."
+                )
+        return v
 
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def instagrapi_proxy_list(self) -> list[str]:
+        raw = self.instagrapi_proxies.replace("\n", ",")
+        return [p.strip() for p in raw.split(",") if p.strip()]
 
 
 @lru_cache
