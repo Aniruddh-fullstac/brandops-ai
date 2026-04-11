@@ -1,17 +1,9 @@
 import { useCallback } from "react";
 import { WorkflowViz } from "../components/WorkflowViz";
 import { rememberLastCampaignId, useCampaignStore } from "../components/CampaignStore";
+import { StructuredData } from "../components/presentation/StructuredData";
 import { apiFetch } from "../lib/api";
 import type { StreamEvent, TraceStep } from "../types";
-
-function JsonPanel({ value }: { value: unknown }) {
-  const safe = value === undefined || value === null ? {} : value;
-  return (
-    <pre className="max-h-[400px] overflow-auto rounded-xl border border-slate-200 bg-slate-50/80 p-4 text-xs leading-relaxed text-slate-700 shadow-inner">
-      {JSON.stringify(safe, null, 2)}
-    </pre>
-  );
-}
 
 function SourceList({ steps }: { steps: TraceStep[] }) {
   const seen = new Map<string, { url: string; title?: string | null }>();
@@ -226,8 +218,8 @@ export default function NewCampaign() {
                       <summary className="cursor-pointer rounded-lg bg-slate-50 px-3 py-2 text-xs font-semibold uppercase text-slate-600 hover:bg-indigo-50">
                         {k.replace(/_/g, " ")}
                       </summary>
-                      <div className="mt-2">
-                        <JsonPanel value={v} />
+                      <div className="mt-2 max-h-[420px] overflow-y-auto rounded-xl border border-slate-100 bg-slate-50/50 p-4">
+                        <StructuredData value={v} />
                       </div>
                     </details>
                   ))}

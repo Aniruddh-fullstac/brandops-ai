@@ -1,34 +1,30 @@
 import { useCampaignStore } from "../components/CampaignStore";
+import { InsightSection } from "../components/presentation/InsightSection";
+import { StructuredData } from "../components/presentation/StructuredData";
 import { TrendingUp, Globe, MessageSquare } from "lucide-react";
+import { collectSources, sourceMatchers } from "../lib/traceSources";
 
-function Card({ title, icon: Icon, children }: { title: string; icon: React.ElementType; children: React.ReactNode }) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <div className="flex items-center gap-2">
-        <Icon size={18} className="text-indigo-600" />
-        <h3 className="font-display text-base font-semibold text-slate-900">{title}</h3>
-      </div>
-      <div className="mt-4">{children}</div>
-    </div>
-  );
-}
-
-/** Prefer persisted `artifacts` (Firestore); fall back to live stream `partial` during a run. */
 export default function MarketInsights() {
   const { partial, artifacts, hydrateLoading, steps } = useCampaignStore();
   const a = artifacts as Record<string, unknown>;
 
-  const trendsBundle = {
-    positioning: a.positioning ?? (partial.strategy as Record<string, unknown> | undefined)?.positioning,
-    channel_strategy: a.channel_strategy,
-    audience_and_messaging: a.audience_and_messaging,
-  };
-  const hasTrends = Object.values(trendsBundle).some((v) => v != null && (typeof v !== "object" || Object.keys(v as object).length > 0));
+  const positioning = (a.positioning ?? (partial.strategy as Record<string, unknown> | undefined)?.positioning) as Record<string, unknown> | undefined;
+  const channelStrategy = a.channel_strategy as Record<string, unknown> | undefined;
+  const audienceMsg = a.audience_and_messaging as Record<string, unknown> | undefined;
+
+  const hasStrategyBlock =
+    [positioning, channelStrategy, audienceMsg].some(
+      (v) => v && typeof v === "object" && Object.keys(v).length > 0
+    );
 
   const socialContent = (a.social ?? partial.social) as Record<string, unknown> | undefined;
   const researchSocial = steps.find((s) => s.agent === "social_media_intelligence" || /social/i.test(s.title));
 
   const audience = (a.audience_segments ?? partial.audience_segments) as Record<string, unknown> | undefined;
+
+  const srcStrategy = collectSources(steps, (s) => sourceMatchers.strategy(s) || sourceMatchers.brandFetch(s));
+  const srcSocial = collectSources(steps, (s) => sourceMatchers.researchSocial(s) || sourceMatchers.creatives(s));
+  const srcAudience = collectSources(steps, (s) => sourceMatchers.audience(s) || sourceMatchers.strategy(s));
 
   if (hydrateLoading) {
     return (
@@ -41,57 +37,72 @@ export default function MarketInsights() {
       <div>
         <h1 className="font-display text-2xl font-bold text-slate-900">Market Insights</h1>
         <p className="mt-1 text-sm text-slate-600">
-          Strategy, channels, and segments from your latest completed campaign (saved to your account).
+          Strategy, channels, and segments from your latest campaign — with trace-linked sources.
         </p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <Card title="Trends & strategy context" icon={TrendingUp}>
-          {hasTrends ? (
-            <pre className="max-h-[350px] overflow-auto rounded-xl bg-slate-50 p-4 text-xs text-slate-700">
-              {JSON.stringify(trendsBundle, null, 2)}
-            </pre>
-          ) : researchSocial?.structured || researchSocial?.summary ? (
-            <div className="space-y-2 text-sm text-slate-700">
-              {researchSocial.summary && <p>{researchSocial.summary}</p>}
-              {researchSocial.structured && (
-                <pre className="max-h-[280px] overflow-auto rounded-xl bg-slate-50 p-3 text-xs">
-                  {JSON.stringify(researchSocial.structured, null, 2)}
-                </pre>
+        <InsightSection title="Positioning & channel strategy" icon={TrendingUp} sources={srcStrategy}>
+          {hasStrategyBlock ? (
+            <div className="space-y-6">
+              {positioning && Object.keys(positioning).length > 0 && (
+                <div>
+                  <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-slate-400">Positioning</p>
+                  <StructuredData value={positioning} />
+                </div>
+              )}
+              {channelStrategy && Object.keys(channelStrategy).length > 0 && (
+                <div>
+                  <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-slate-400">Channel strategy</p>
+                  <StructuredData value={channelStrategy} />
+                </div>
+              )}
+              {audienceMsg && Object.keys(audienceMsg).length > 0 && (
+                <div>
+                  <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-slate-400">Audience & messaging</p>
+                  <StructuredData value={audienceMsg} />
+                </div>
+              )}
+            </div>
+          ) : researchSocial?.summary || researchSocial?.structured ? (
+            <div className="space-y-3 text-sm text-slate-700">
+              {researchSocial.summary && <p className="leading-relaxed">{researchSocial.summary}</p>}
+              {researchSocial.structured && typeof researchSocial.structured === "object" && (
+                <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-4">
+                  <StructuredData value={researchSocial.structured} />
+                </div>
               )}
             </div>
           ) : (
-            <p className="text-sm text-slate-500">Run a campaign to populate insights. Data loads automatically after completion.</p>
+            <p className="text-sm text-slate-500">Run a campaign to populate insights.</p>
           )}
-        </Card>
+        </InsightSection>
 
-        <Card title="Social & messaging" icon={Globe}>
+        <InsightSection title="Social content & hooks" icon={Globe} sources={srcSocial}>
           {socialContent && Object.keys(socialContent).length > 0 ? (
-            <pre className="max-h-[350px] overflow-auto rounded-xl bg-slate-50 p-4 text-xs text-slate-700">
-              {JSON.stringify(socialContent, null, 2)}
-            </pre>
-          ) : researchSocial ? (
-            <p className="text-sm text-slate-600">{researchSocial.summary || "See agent trace for social research detail."}</p>
+            <StructuredData value={socialContent} />
+          ) : researchSocial?.summary ? (
+            <p className="text-sm leading-relaxed text-slate-700">{researchSocial.summary}</p>
           ) : (
-            <p className="text-sm text-slate-500">Social outputs appear here from saved campaign artifacts.</p>
+            <p className="text-sm text-slate-500">Social outputs appear after the creative agents run.</p>
           )}
-        </Card>
+        </InsightSection>
 
-        <Card title="Audience Segments" icon={MessageSquare}>
+        <InsightSection title="Audience segments" icon={MessageSquare} sources={srcAudience}>
           {audience && Object.keys(audience).length > 0 ? (
-            <div className="space-y-3">
-              {Array.isArray((audience as { segments?: unknown[] }).segments) ? (
-                (audience as { segments: { name: string; description: string; preferred_channels?: string[] }[] }).segments.map(
+            Array.isArray((audience as { segments?: unknown[] }).segments) ? (
+              <div className="space-y-3">
+                {(audience as { segments: { name: string; description: string; preferred_channels?: string[] }[] }).segments.map(
                   (seg, i) => (
-                    <div key={i} className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+                    <div key={i} className="rounded-xl border border-indigo-100 bg-gradient-to-br from-indigo-50/60 to-white p-4 shadow-sm">
                       <p className="font-semibold text-slate-900">{seg.name}</p>
                       <p className="mt-1 text-sm text-slate-600">{seg.description}</p>
-                      {seg.preferred_channels && (
-                        <div className="mt-2 flex flex-wrap gap-1">
+                      {seg.preferred_channels && seg.preferred_channels.length > 0 && (
+                        <div className="mt-3 flex flex-wrap gap-1.5">
                           {seg.preferred_channels.map((ch: string) => (
                             <span
                               key={ch}
-                              className="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-medium text-indigo-700"
+                              className="rounded-full bg-white px-2.5 py-0.5 text-[10px] font-semibold text-indigo-700 shadow-sm"
                             >
                               {ch}
                             </span>
@@ -100,17 +111,15 @@ export default function MarketInsights() {
                       )}
                     </div>
                   )
-                )
-              ) : (
-                <pre className="overflow-auto rounded-xl bg-slate-50 p-4 text-xs text-slate-700">
-                  {JSON.stringify(audience, null, 2)}
-                </pre>
-              )}
-            </div>
+                )}
+              </div>
+            ) : (
+              <StructuredData value={audience} />
+            )
           ) : (
-            <p className="text-sm text-slate-500">Segments are generated in the campaign graph and stored with your run.</p>
+            <p className="text-sm text-slate-500">Segments are produced by the audience agent in the graph.</p>
           )}
-        </Card>
+        </InsightSection>
       </div>
     </div>
   );

@@ -1,4 +1,6 @@
 import { useCampaignStore } from "../components/CampaignStore";
+import { SourceFootnotes } from "../components/presentation/SourceFootnotes";
+import { collectSources, sourceMatchers } from "../lib/traceSources";
 import { CalendarDays } from "lucide-react";
 
 const CH_COLORS: Record<string, string> = {
@@ -17,7 +19,7 @@ type CalDay = { date: string; weekday: string; phase: string; events: DayEvent[]
 type CalData = { days?: CalDay[]; summary?: { total_events: number; by_channel: Record<string, number> } };
 
 export default function CampaignCalendar() {
-  const { artifacts, hydrateLoading } = useCampaignStore();
+  const { artifacts, hydrateLoading, steps } = useCampaignStore();
   const calendar = (artifacts as { campaign_calendar?: CalData }).campaign_calendar;
 
   if (hydrateLoading) {
@@ -93,6 +95,10 @@ export default function CampaignCalendar() {
             )}
           </div>
         ))}
+      </div>
+
+      <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 p-4">
+        <SourceFootnotes sources={collectSources(steps, (s) => sourceMatchers.timing(s) || sourceMatchers.strategy(s))} />
       </div>
     </div>
   );
