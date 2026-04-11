@@ -2,6 +2,7 @@ from __future__ import annotations
 
 """Campaign Intelligence Graph API."""
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -476,12 +477,14 @@ async def stream_campaign(
         "request": req.model_dump(mode="json"),
     })
 
+    activity_queue: asyncio.Queue = asyncio.Queue()
     initial: dict[str, Any] = {
         "request": req.model_dump(mode="json"),
         "run_id": run_id,
         "trace": [],
         "errors": [],
         "activities": [],
+        "_activity_queue": activity_queue,
     }
     last: dict[str, Any] = initial
     trace_len = 0
@@ -492,6 +495,13 @@ async def stream_campaign(
             initial,
             stream_mode=["updates", "values"],
         ):
+            # Drain real-time activity queue (pushed by nodes during execution)
+            while not activity_queue.empty():
+                try:
+                    live_act = activity_queue.get_nowait()
+                    yield _sse({"event": "agent_activity", "payload": live_act})
+                except asyncio.QueueEmpty:
+                    break
             if isinstance(packet, tuple) and len(packet) == 2:
                 mode, chunk = packet
             else:

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import operator
 from typing import Annotated, Any, TypedDict
 
 
 class CampaignState(TypedDict, total=False):
+    # Real-time activity queue — nodes push, stream handler drains
+    _activity_queue: asyncio.Queue  # type: ignore[type-arg]
     request: dict[str, Any]
     run_id: str
     generate_images: bool

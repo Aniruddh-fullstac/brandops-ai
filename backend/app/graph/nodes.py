@@ -74,6 +74,16 @@ def _activities(*acts: dict[str, Any]) -> dict[str, Any]:
     return {"activities": list(acts)}
 
 
+def _emit_live(state: Any, act: dict[str, Any]) -> None:
+    """Push an activity to the real-time queue if available."""
+    q = state.get("_activity_queue") if isinstance(state, dict) else None
+    if q is not None:
+        try:
+            q.put_nowait(act)
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def _req(state: CampaignState) -> CampaignRequest:
     return CampaignRequest.model_validate(state["request"])
 
@@ -145,10 +155,10 @@ async def node_brand_fetch(
     tools = [
         ToolInvocation(name="fetch_url", args={"url": url}, result_summary=None),
     ]
-    acts = [
-        _act(phase="brand_fetch", agent="brand_site_analyst", action="fetching_url",
-             detail=f"Crawling {url}", url=url, tool="fetch_url"),
-    ]
+    # Emit live activity BEFORE the slow fetch
+    _emit_live(state, _act(phase="brand_fetch", agent="brand_site_analyst", action="fetching_url",
+                           detail=f"Crawling {url}", url=url, tool="fetch_url"))
+    acts = []
     try:
         text, ctype = await fetch_url_text(url, settings)
         tools[0].result_summary = f"Fetched {len(text)} chars ({ctype or 'unknown'})."
@@ -209,26 +219,22 @@ async def _competitor_agent(state: CampaignState, client: AsyncOpenAI, settings:
         + f"\n\nFocus: map the competitive set around `{r.brand_name}`. "
         "Include both global and regional players where relevant."
     )
-    acts = [
-        _act(phase="research", agent="competitor_intelligence", action="web_search",
-             detail=f"Searching web for {r.brand_name} competitors and market positioning",
-             tool="web_search"),
-    ]
+    # Emit live BEFORE the slow web search
+    _emit_live(state, _act(phase="research", agent="competitor_intelligence", action="web_search",
+                           detail=f"Searching web for {r.brand_name} competitors and market positioning",
+                           tool="web_search"))
+    acts: list[dict[str, Any]] = []
     pkt = await run_responses_web_research(
         client=client, settings=settings, instructions=instructions, user_input=user
     )
-    # Add activities for each source found
+    # Emit sources found live
     for s in pkt.sources[:5]:
-        acts.append(_act(
-            phase="research", agent="competitor_intelligence", action="reading_source",
-            detail=f"Reading: {s.get('title', s['url'])}",
-            url=s["url"], tool="web_search",
-        ))
-    acts.append(_act(
-        phase="research", agent="competitor_intelligence", action="llm_call",
-        detail=f"Structuring competitive landscape for {r.brand_name}",
-        tool="gpt-4o-mini",
-    ))
+        a = _act(phase="research", agent="competitor_intelligence", action="reading_source",
+                 detail=f"Reading: {s.get('title', s['url'])}", url=s["url"], tool="web_search")
+        _emit_live(state, a)
+        acts.append(a)
+    _emit_live(state, _act(phase="research", agent="competitor_intelligence", action="llm_call",
+                           detail=f"Structuring competitive landscape for {r.brand_name}", tool="gpt-4o-mini"))
     structured = await chat_json_object(
         client=client,
         model=settings.openai_model_fast,
@@ -270,10 +276,9 @@ async def _social_agent(state: CampaignState, client: AsyncOpenAI, settings: Set
     r = _req(state)
     ctx = build_node_context(state)
     reddit_q = f"{r.brand_name} {r.industry_hint or ''} review OR experience"
-    acts = [
-        _act(phase="research", agent="social_media_intelligence", action="reddit_search",
-             detail=f"Searching Reddit for \"{reddit_q}\"", tool="reddit_search"),
-    ]
+    _emit_live(state, _act(phase="research", agent="social_media_intelligence", action="reddit_search",
+                           detail=f"Searching Reddit for \"{reddit_q}\"", tool="reddit_search"))
+    acts: list[dict[str, Any]] = []
     reddit_posts: list[dict] = []
     reddit_err: str | None = None
     try:
@@ -301,23 +306,18 @@ async def _social_agent(state: CampaignState, client: AsyncOpenAI, settings: Set
         + str(digest)[:8000]
         + "\n\nInfer platform-native tactics for this category."
     )
-    acts.append(_act(
-        phase="research", agent="social_media_intelligence", action="web_search",
-        detail=f"Searching social platforms for {r.brand_name} content patterns",
-        tool="web_search",
-    ))
+    _emit_live(state, _act(phase="research", agent="social_media_intelligence", action="web_search",
+                           detail=f"Searching social platforms for {r.brand_name} content patterns", tool="web_search"))
     pkt = await run_responses_web_research(
         client=client, settings=settings, instructions=instructions, user_input=user
     )
     for s in pkt.sources[:4]:
-        acts.append(_act(
-            phase="research", agent="social_media_intelligence", action="reading_source",
-            detail=f"Analyzing: {s.get('title', s['url'])}", url=s["url"],
-        ))
-    acts.append(_act(
-        phase="research", agent="social_media_intelligence", action="llm_call",
-        detail=f"Extracting social engagement patterns for {r.brand_name}", tool="gpt-4o-mini",
-    ))
+        a = _act(phase="research", agent="social_media_intelligence", action="reading_source",
+                 detail=f"Analyzing: {s.get('title', s['url'])}", url=s["url"])
+        _emit_live(state, a)
+        acts.append(a)
+    _emit_live(state, _act(phase="research", agent="social_media_intelligence", action="llm_call",
+                           detail=f"Extracting social engagement patterns for {r.brand_name}", tool="gpt-4o-mini"))
     structured = await chat_json_object(
         client=client,
         model=settings.openai_model_fast,
@@ -359,22 +359,19 @@ async def _trends_agent(state: CampaignState, client: AsyncOpenAI, settings: Set
         "regulatory or technology shifts affecting this space in the next 90 days."
     )
     user = ctx + f"\n\nAnchor brand: {r.brand_name}. Surface trend evidence with URLs."
-    acts = [
-        _act(phase="research", agent="market_trends", action="web_search",
-             detail=f"Searching for market trends affecting {r.brand_name}", tool="web_search"),
-    ]
+    _emit_live(state, _act(phase="research", agent="market_trends", action="web_search",
+                           detail=f"Searching for market trends affecting {r.brand_name}", tool="web_search"))
+    acts: list[dict[str, Any]] = []
     pkt = await run_responses_web_research(
         client=client, settings=settings, instructions=instructions, user_input=user
     )
     for s in pkt.sources[:4]:
-        acts.append(_act(
-            phase="research", agent="market_trends", action="reading_source",
-            detail=f"Analyzing: {s.get('title', s['url'])}", url=s["url"],
-        ))
-    acts.append(_act(
-        phase="research", agent="market_trends", action="llm_call",
-        detail=f"Synthesizing trend impact analysis for {r.brand_name}", tool="gpt-4o-mini",
-    ))
+        a = _act(phase="research", agent="market_trends", action="reading_source",
+                 detail=f"Analyzing: {s.get('title', s['url'])}", url=s["url"])
+        _emit_live(state, a)
+        acts.append(a)
+    _emit_live(state, _act(phase="research", agent="market_trends", action="llm_call",
+                           detail=f"Synthesizing trend impact analysis for {r.brand_name}", tool="gpt-4o-mini"))
     structured = await chat_json_object(
         client=client,
         model=settings.openai_model_fast,
@@ -771,10 +768,17 @@ async def node_strategy(state: CampaignState, *, client: AsyncOpenAI, settings: 
         "measurement (object), reasoning_trace (array of {decision, because})."
     )
     user = ctx + "\n\nGrounding research digest:\n" + digest[:18_000]
+    _emit_live(state, _act(phase="strategy", agent="campaign_strategy_architect", action="llm_call",
+                           detail=f"Building go-to-market strategy for {r.brand_name}", tool=settings.openai_model))
     structured = await chat_json_object(
         client=client, model=settings.openai_model, system=system, user=user, temperature=0.35
     )
     return {
+        **_activities(
+            _act(phase="strategy", agent="campaign_strategy_architect", action="analyzing",
+                 detail=f"Strategy complete: {len(structured.get('messaging_pillars', []))} messaging pillars, "
+                        f"{len(structured.get('channel_plan', []))} channels planned"),
+        ),
         **_trace_step(
             agent="campaign_strategy_architect",
             phase="strategy",
