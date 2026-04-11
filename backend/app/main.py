@@ -12,6 +12,7 @@ if str(_backend_root) not in sys.path:
 import json
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
+from urllib.parse import quote
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request
@@ -23,10 +24,17 @@ from openai import AsyncOpenAI
 from app.config import Settings, get_settings
 from app.graph.builder import build_campaign_graph
 from app.schemas.campaign import CampaignArtifacts, CampaignRequest, CampaignResult
-from app.schemas.offline import OfflineCampaignCreate, OfflineCampaignPublic, OfflineSubmitResult, OfflineSurveySubmit
+from app.schemas.offline import (
+    OfflineCampaignCreate,
+    OfflineCampaignPublic,
+    OfflineEventIn,
+    OfflineEventResult,
+    OfflineSubmitResult,
+    OfflineSurveySubmit,
+)
 from app.services import firebase_client as fb
 from app.services.geo_ip import lookup_ip
-from app.services.offline_analytics import build_analytics
+from app.services.offline_analytics import build_full_analytics
 from app.services.qr_codes import qr_png_bytes
 from app.services.image_store import is_safe_media_filename, is_safe_run_id
 
@@ -51,6 +59,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _offline_landing_url(slug: str, default_or_loc: str | None = None) -> str:
+    """Public SPA path; optional ?loc= for placement (store / poster id)."""
+    settings = get_settings()
+    base = f"{settings.public_app_url.rstrip('/')}/p/{slug}"
+    if default_or_loc and str(default_or_loc).strip():
+        return f"{base}?loc={quote(str(default_or_loc).strip(), safe='')}"
+    return base
 
 
 def _client_ip(request: Request) -> str:
@@ -165,8 +182,8 @@ async def offline_campaign_create(body: OfflineCampaignCreate, request: Request)
     c = await fb.get_offline_campaign(cid)
     if c is None:
         c = {**payload, "id": cid, "slug": slug, "owner_id": uid}
-    settings = get_settings()
-    landing = f"{settings.public_app_url.rstrip('/')}/p/{slug}"
+    loc = (c or {}).get("default_qr_location") or ""
+    landing = _offline_landing_url(slug, loc or None)
     return {"id": cid, "slug": slug, "landing_url": landing, "campaign": c}
 
 
@@ -176,12 +193,11 @@ async def offline_campaign_list(request: Request):
     if not uid:
         return {"campaigns": []}
     rows = await fb.list_offline_campaigns(uid)
-    settings = get_settings()
-    base = settings.public_app_url.rstrip("/")
     out = []
     for r in rows:
         slug = r.get("slug") or ""
-        out.append({**r, "landing_url": f"{base}/p/{slug}"})
+        loc = r.get("default_qr_location") or ""
+        out.append({**r, "landing_url": _offline_landing_url(slug, loc or None)})
     return {"campaigns": out}
 
 
@@ -193,9 +209,9 @@ async def offline_campaign_get(campaign_id: str, request: Request):
     c = await fb.get_offline_campaign(campaign_id)
     if not c or c.get("owner_id") != uid:
         raise HTTPException(status_code=404, detail="Not found")
-    settings = get_settings()
     slug = c.get("slug") or ""
-    return {**c, "landing_url": f"{settings.public_app_url.rstrip('/')}/p/{slug}"}
+    loc = c.get("default_qr_location") or ""
+    return {**c, "landing_url": _offline_landing_url(slug, loc or None)}
 
 
 @app.patch("/api/offline/campaigns/{campaign_id}")
@@ -204,8 +220,21 @@ async def offline_campaign_patch(campaign_id: str, request: Request):
     if not uid:
         raise HTTPException(status_code=401, detail="Unauthorized")
     body = await request.json()
-    allowed = {"status", "headline", "description", "promo_image_urls", "product_options", "interest_tags",
-               "collect_name", "collect_email", "collect_phone", "collect_age_range", "title", "brand_name"}
+    allowed = {
+        "status",
+        "headline",
+        "description",
+        "promo_image_urls",
+        "product_options",
+        "interest_tags",
+        "collect_name",
+        "collect_email",
+        "collect_phone",
+        "collect_age_range",
+        "title",
+        "brand_name",
+        "default_qr_location",
+    }
     patch = {k: v for k, v in body.items() if k in allowed}
     if not patch:
         raise HTTPException(status_code=400, detail="No valid fields")
@@ -213,9 +242,9 @@ async def offline_campaign_patch(campaign_id: str, request: Request):
     if not ok:
         raise HTTPException(status_code=404, detail="Not found")
     c = await fb.get_offline_campaign(campaign_id)
-    settings = get_settings()
     slug = c.get("slug") or ""
-    return {**c, "landing_url": f"{settings.public_app_url.rstrip('/')}/p/{slug}"}
+    loc = c.get("default_qr_location") or ""
+    return {**c, "landing_url": _offline_landing_url(slug, loc or None)}
 
 
 @app.get("/api/offline/campaigns/{campaign_id}/analytics")
@@ -227,7 +256,11 @@ async def offline_campaign_analytics(campaign_id: str, request: Request):
     if not c or c.get("owner_id") != uid:
         raise HTTPException(status_code=404, detail="Not found")
     responses = await fb.list_offline_responses(campaign_id)
-    return {"campaign": {"id": c["id"], "title": c.get("title"), "slug": c.get("slug")}, "analytics": build_analytics(responses)}
+    events = await fb.list_offline_events(campaign_id)
+    return {
+        "campaign": {"id": c["id"], "title": c.get("title"), "slug": c.get("slug")},
+        "analytics": build_full_analytics(responses, events),
+    }
 
 
 @app.get("/api/offline/campaigns/{campaign_id}/qr.png")
@@ -238,9 +271,9 @@ async def offline_campaign_qr_png(campaign_id: str, request: Request):
     c = await fb.get_offline_campaign(campaign_id)
     if not c or c.get("owner_id") != uid:
         raise HTTPException(status_code=404, detail="Not found")
-    settings = get_settings()
     slug = c.get("slug") or ""
-    url = f"{settings.public_app_url.rstrip('/')}/p/{slug}"
+    loc = c.get("default_qr_location") or ""
+    url = _offline_landing_url(slug, loc or None)
     return Response(content=qr_png_bytes(url), media_type="image/png")
 
 
@@ -373,6 +406,28 @@ async def public_offline_submit(slug: str, body: OfflineSurveySubmit, request: R
         survey,
     )
     return OfflineSubmitResult(session_id=session_id, is_return_visit=is_return)
+
+
+@app.post("/api/public/offline/{slug}/event", response_model=OfflineEventResult)
+async def public_offline_event(slug: str, body: OfflineEventIn, request: Request):
+    """Telemetry: landing views, carousel, rating taps — includes IP/geo like submissions."""
+    c = await fb.get_offline_campaign_by_slug(slug)
+    if not c or c.get("status") != "active":
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    cid = c["id"]
+    ip = _client_ip(request)
+    geo = await lookup_ip(ip)
+    ua = request.headers.get("user-agent") or ""
+    await fb.add_offline_event(
+        cid,
+        body.session_id.strip(),
+        body.event_type,
+        body.location_label,
+        ip,
+        ua,
+        dict(body.meta) if body.meta else {},
+    )
+    return OfflineEventResult()
 
 
 # --- Admin ---

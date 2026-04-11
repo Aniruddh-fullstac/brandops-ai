@@ -268,13 +268,58 @@ async def add_offline_response(
     return doc_ref.id
 
 
-async def list_offline_responses(campaign_id: str, limit: int = 800) -> list[dict[str, Any]]:
+async def list_offline_responses(campaign_id: str, limit: int = 5000) -> list[dict[str, Any]]:
     db = get_db()
     if db is None:
         return []
     ref = db.collection("offline_campaigns").document(campaign_id).collection("responses")
     try:
         docs = ref.order_by("submitted_at", direction="DESCENDING").limit(limit).stream()
+    except Exception:  # noqa: BLE001
+        docs = ref.limit(limit).stream()
+    return [{**d.to_dict(), "id": d.id} for d in docs]
+
+
+async def add_offline_event(
+    campaign_id: str,
+    session_id: str,
+    event_type: str,
+    location_label: str | None,
+    ip: str,
+    user_agent: str,
+    geo: dict[str, Any],
+    meta: dict[str, Any],
+) -> str:
+    db = get_db()
+    payload = {
+        "session_id": session_id,
+        "event_type": event_type,
+        "location_label": location_label or "",
+        "ip": ip,
+        "user_agent": user_agent[:500] if user_agent else "",
+        "geo": geo,
+        "meta": meta or {},
+        "created_at": _now_iso(),
+    }
+    if db is None:
+        return "local"
+    doc_ref = (
+        db.collection("offline_campaigns")
+        .document(campaign_id)
+        .collection("events")
+        .document()
+    )
+    doc_ref.set(payload)
+    return doc_ref.id
+
+
+async def list_offline_events(campaign_id: str, limit: int = 15000) -> list[dict[str, Any]]:
+    db = get_db()
+    if db is None:
+        return []
+    ref = db.collection("offline_campaigns").document(campaign_id).collection("events")
+    try:
+        docs = ref.order_by("created_at", direction="DESCENDING").limit(limit).stream()
     except Exception:  # noqa: BLE001
         docs = ref.limit(limit).stream()
     return [{**d.to_dict(), "id": d.id} for d in docs]

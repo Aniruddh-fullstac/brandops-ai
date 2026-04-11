@@ -32,6 +32,8 @@ class OfflineCampaignCreate(BaseModel):
     collect_phone: bool = False
     collect_age_range: bool = True
     status: Literal["draft", "active"] = "draft"
+    # If set, generated QR + dashboard links include ?loc=… (placement / store id).
+    default_qr_location: str = Field("", max_length=120)
 
 
 class OfflineCampaignPublic(BaseModel):
@@ -79,3 +81,28 @@ class OfflineSubmitResult(BaseModel):
     ok: bool = True
     session_id: str
     is_return_visit: bool
+
+
+class OfflineEventIn(BaseModel):
+    """Public telemetry: page views, carousel, taps (no PII in meta)."""
+
+    session_id: str = Field(..., max_length=80)
+    location_label: str | None = Field(None, max_length=120)
+    event_type: str = Field(
+        ...,
+        max_length=48,
+        description="e.g. page_view, carousel_next, rating_select, interest_toggle",
+    )
+    meta: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("event_type")
+    @classmethod
+    def normalize_event(cls, v: str) -> str:
+        t = (v or "").strip().lower().replace(" ", "_")
+        if not t or len(t) > 48:
+            raise ValueError("invalid event_type")
+        return t[:48]
+
+
+class OfflineEventResult(BaseModel):
+    ok: bool = True

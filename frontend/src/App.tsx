@@ -13,6 +13,7 @@ import PerformanceSimulation from "./pages/PerformanceSimulation";
 import Notifications from "./pages/Notifications";
 import AdminDashboard from "./pages/AdminDashboard";
 import OfflineCampaigns from "./pages/OfflineCampaigns";
+import OfflineCampaignAnalytics from "./pages/OfflineCampaignAnalytics";
 import PublicOfflineLanding from "./pages/PublicOfflineLanding";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -52,6 +53,7 @@ export default function App() {
               <Route path="performance" element={<PerformanceSimulation />} />
               <Route path="notifications" element={<Notifications />} />
               <Route path="offline" element={<OfflineCampaigns />} />
+              <Route path="offline/:campaignId/analytics" element={<OfflineCampaignAnalytics />} />
               <Route path="admin" element={<AdminDashboard />} />
             </Route>
           </Routes>

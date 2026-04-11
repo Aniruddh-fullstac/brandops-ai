@@ -1,7 +1,26 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { Check, ChevronLeft, ChevronRight, Heart, MapPin, Sparkles, Star } from "lucide-react";
 import { publicJson, publicPostJson } from "../lib/api";
+
+async function sendOfflineEvent(
+  slug: string,
+  sessionId: string,
+  locationLabel: string | undefined,
+  event_type: string,
+  meta: Record<string, unknown> = {}
+) {
+  try {
+    await publicPostJson(`/api/public/offline/${encodeURIComponent(slug)}/event`, {
+      session_id: sessionId,
+      location_label: locationLabel,
+      event_type,
+      meta,
+    });
+  } catch {
+    /* non-blocking telemetry */
+  }
+}
 
 type PublicCampaign = {
   id: string;
@@ -66,6 +85,7 @@ export default function PublicOfflineLanding() {
   const [consentAnalytics, setConsentAnalytics] = useState(true);
 
   const sid = useMemo(() => (slug ? sessionIdFor(slug) : ""), [slug]);
+  const pageViewOnce = useRef(false);
 
   const load = useCallback(async () => {
     if (!slug) return;
@@ -89,12 +109,25 @@ export default function PublicOfflineLanding() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (!campaign || !slug || !sid) return;
+    if (pageViewOnce.current) return;
+    pageViewOnce.current = true;
+    void sendOfflineEvent(slug, sid, locLabel, "page_view", { path: `/p/${slug}` });
+  }, [campaign, slug, sid, locLabel]);
+
   const images = campaign?.promo_image_urls?.filter(Boolean) ?? [];
   const showCarousel = images.length > 0;
 
-  const toggle = (arr: string[], v: string, set: (x: string[]) => void) => {
-    if (arr.includes(v)) set(arr.filter((x) => x !== v));
-    else set([...arr, v]);
+  const toggle = (arr: string[], v: string, set: (x: string[]) => void, kind?: "product" | "interest") => {
+    const next = arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v];
+    set(next);
+    if (kind && slug && sid) {
+      void sendOfflineEvent(slug, sid, locLabel, kind === "product" ? "product_toggle" : "interest_toggle", {
+        value: v,
+        selected: !arr.includes(v),
+      });
+    }
   };
 
   const submit = async (e: React.FormEvent) => {
@@ -221,7 +254,11 @@ export default function PublicOfflineLanding() {
                   type="button"
                   aria-label="Previous"
                   className="absolute left-3 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur transition hover:bg-black/70"
-                  onClick={() => setImgIdx((i) => (i - 1 + images.length) % images.length)}
+                    onClick={() => {
+                      const next = (imgIdx - 1 + images.length) % images.length;
+                      setImgIdx(next);
+                      if (slug && sid) void sendOfflineEvent(slug, sid, locLabel, "carousel_next", { index: next });
+                    }}
                 >
                   <ChevronLeft className="h-5 w-5" />
                 </button>
@@ -229,7 +266,11 @@ export default function PublicOfflineLanding() {
                   type="button"
                   aria-label="Next"
                   className="absolute right-3 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur transition hover:bg-black/70"
-                  onClick={() => setImgIdx((i) => (i + 1) % images.length)}
+                  onClick={() => {
+                    const next = (imgIdx + 1) % images.length;
+                    setImgIdx(next);
+                    if (slug && sid) void sendOfflineEvent(slug, sid, locLabel, "carousel_next", { index: next });
+                  }}
                 >
                   <ChevronRight className="h-5 w-5" />
                 </button>
@@ -240,7 +281,10 @@ export default function PublicOfflineLanding() {
                       type="button"
                       aria-label={`Slide ${i + 1}`}
                       className={`h-1.5 rounded-full transition ${i === imgIdx ? "w-6 bg-white" : "w-1.5 bg-white/40"}`}
-                      onClick={() => setImgIdx(i)}
+                      onClick={() => {
+                        setImgIdx(i);
+                        if (slug && sid) void sendOfflineEvent(slug, sid, locLabel, "carousel_dot", { index: i });
+                      }}
                     />
                   ))}
                 </div>
@@ -273,7 +317,7 @@ export default function PublicOfflineLanding() {
                   <button
                     key={opt}
                     type="button"
-                    onClick={() => toggle(selected, opt, setSelected)}
+                    onClick={() => toggle(selected, opt, setSelected, "product")}
                     className={`rounded-full border px-4 py-2 text-sm font-medium transition ${
                       selected.includes(opt)
                         ? "border-teal-400/80 bg-teal-500/25 text-teal-50"
@@ -298,7 +342,10 @@ export default function PublicOfflineLanding() {
                 <button
                   key={n}
                   type="button"
-                  onClick={() => setRating(n)}
+                  onClick={() => {
+                    setRating(n);
+                    if (slug && sid) void sendOfflineEvent(slug, sid, locLabel, "rating_select", { rating: n });
+                  }}
                   className={`flex h-12 w-12 items-center justify-center rounded-xl border text-lg font-bold transition ${
                     rating === n
                       ? "border-amber-400/90 bg-amber-500/20 text-amber-100"
@@ -322,7 +369,7 @@ export default function PublicOfflineLanding() {
                   <button
                     key={tag}
                     type="button"
-                    onClick={() => toggle(interests, tag, setInterests)}
+                    onClick={() => toggle(interests, tag, setInterests, "interest")}
                     className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
                       interests.includes(tag)
                         ? "border-indigo-400/80 bg-indigo-500/25 text-indigo-50"

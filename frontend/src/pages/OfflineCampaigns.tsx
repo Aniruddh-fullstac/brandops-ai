@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   BarChart3,
   Download,
@@ -27,11 +28,19 @@ type OfflineRow = {
   product_options?: string[];
   interest_tags?: string[];
   landing_url?: string;
+  default_qr_location?: string;
   created_at?: string;
 };
 
 type Analytics = {
-  totals: { responses: number; unique_sessions: number; return_visits: number };
+  totals: {
+    responses: number;
+    unique_sessions?: number;
+    page_views?: number;
+    conversion_pct?: number | null;
+    total_tracked_events?: number;
+    return_visits: number;
+  };
   geo: { by_country: { name: string; count: number }[]; by_city: { name: string; count: number }[] };
   products: { name: string; count: number }[];
   interests: { name: string; count: number }[];
@@ -78,6 +87,7 @@ export default function OfflineCampaigns() {
     promo_image_urls: "",
     product_options: "Limited drop, Core line, Collab, Accessories",
     interest_tags: "Streetwear, Sustainability, Tech, Travel",
+    default_qr_location: "",
     status: "active" as "draft" | "active",
   });
 
@@ -141,6 +151,7 @@ export default function OfflineCampaigns() {
             collect_phone: false,
             collect_age_range: true,
             status: form.status,
+            default_qr_location: form.default_qr_location.trim() || undefined,
           }),
         }
       );
@@ -153,6 +164,7 @@ export default function OfflineCampaigns() {
         promo_image_urls: "",
         product_options: "Limited drop, Core line, Collab, Accessories",
         interest_tags: "Streetwear, Sustainability, Tech, Travel",
+        default_qr_location: "",
         status: "active",
       });
       await refresh();
@@ -282,6 +294,15 @@ export default function OfflineCampaigns() {
                   value={form.interest_tags}
                   onChange={(e) => setForm((f) => ({ ...f, interest_tags: e.target.value }))}
                 />
+                <label className="block text-xs font-semibold text-slate-500">
+                  Default placement / store id (optional — adds ?loc= to QR & links)
+                </label>
+                <input
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 font-mono text-sm"
+                  placeholder="e.g. mall-north-01"
+                  value={form.default_qr_location}
+                  onChange={(e) => setForm((f) => ({ ...f, default_qr_location: e.target.value }))}
+                />
                 <label className="flex items-center gap-2 text-sm text-slate-700">
                   <input
                     type="checkbox"
@@ -410,96 +431,90 @@ export default function OfflineCampaigns() {
                       <Download className="h-3.5 w-3.5" />
                       Export CSV
                     </button>
+                    <Link
+                      to={`/offline/${selected.id}/analytics`}
+                      className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-4 py-2 text-xs font-bold text-white shadow-md"
+                    >
+                      <BarChart3 className="h-3.5 w-3.5" />
+                      Full analytics dashboard
+                    </Link>
                   </div>
 
                   <p className="mt-4 flex items-start gap-2 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-900">
                     <MapPin className="mt-0.5 h-4 w-4 shrink-0" />
                     <span>
-                      Append <code className="rounded bg-amber-100 px-1">?loc=your-store-id</code> to the landing URL
-                      for different print placements; location appears in analytics.
+                      Set <strong>default placement</strong> when creating a campaign (or append{" "}
+                      <code className="rounded bg-amber-100 px-1">?loc=your-store-id</code>) so scans record location on{" "}
+                      <strong>first page view</strong>, not only on submit. Download QR after saving — it includes{" "}
+                      <code className="rounded bg-amber-100 px-1">?loc=</code> when configured.
                     </span>
                   </p>
                 </div>
 
                 <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                  <div className="flex items-center gap-2 text-slate-900">
-                    <BarChart3 className="h-5 w-5 text-indigo-600" />
-                    <h3 className="font-display font-bold">Analytics</h3>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-slate-900">
+                      <BarChart3 className="h-5 w-5 text-indigo-600" />
+                      <h3 className="font-display font-bold">Quick snapshot</h3>
+                    </div>
+                    <Link
+                      to={`/offline/${selected.id}/analytics`}
+                      className="text-xs font-bold text-indigo-600 hover:underline"
+                    >
+                      Open full dashboard →
+                    </Link>
                   </div>
                   {analyticsLoading ? (
                     <p className="mt-4 text-sm text-slate-500">Loading analytics…</p>
                   ) : analytics ? (
-                    <div className="mt-6 space-y-8">
-                      <div className="grid gap-4 sm:grid-cols-3">
+                    <div className="mt-6 space-y-6">
+                      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                        <div className="rounded-xl bg-slate-50 p-4">
+                          <p className="text-2xl font-bold text-slate-900">{analytics.totals.page_views ?? 0}</p>
+                          <p className="text-xs text-slate-500">Landing views (telemetry)</p>
+                        </div>
                         <div className="rounded-xl bg-slate-50 p-4">
                           <Users className="h-5 w-5 text-indigo-500" />
                           <p className="mt-2 text-2xl font-bold text-slate-900">{analytics.totals.responses}</p>
-                          <p className="text-xs text-slate-500">Responses</p>
+                          <p className="text-xs text-slate-500">Submissions</p>
                         </div>
                         <div className="rounded-xl bg-slate-50 p-4">
-                          <RefreshCw className="h-5 w-5 text-teal-500" />
-                          <p className="mt-2 text-2xl font-bold text-slate-900">{analytics.totals.return_visits}</p>
-                          <p className="text-xs text-slate-500">Return visits</p>
+                          <p className="text-2xl font-bold text-slate-900">
+                            {analytics.totals.conversion_pct != null ? `${analytics.totals.conversion_pct}%` : "—"}
+                          </p>
+                          <p className="text-xs text-slate-500">Conversion (submit ÷ views)</p>
                         </div>
                         <div className="rounded-xl bg-slate-50 p-4">
                           <ImageIcon className="h-5 w-5 text-rose-500" />
                           <p className="mt-2 text-2xl font-bold text-slate-900">
                             {analytics.retargeting.with_marketing_consent}
                           </p>
-                          <p className="text-xs text-slate-500">Marketing opt-in emails</p>
+                          <p className="text-xs text-slate-500">Marketing opt-in</p>
                         </div>
                       </div>
 
                       <div>
-                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Geo (IP-derived)</h4>
+                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Geo (submissions)</h4>
                         <div className="mt-3 space-y-2">
                           {analytics.geo.by_country.length === 0 ? (
-                            <p className="text-sm text-slate-400">No geo data yet.</p>
+                            <p className="text-sm text-slate-400">No geo from submissions yet.</p>
                           ) : (
-                            analytics.geo.by_country.map((x) => (
+                            analytics.geo.by_country.slice(0, 6).map((x) => (
                               <BarRow key={x.name} label={x.name} count={x.count} max={maxCountry || 1} />
                             ))
                           )}
                         </div>
                       </div>
 
-                      <div>
-                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Product interest</h4>
-                        <div className="mt-3 space-y-2">
-                          {analytics.products.length === 0 ? (
-                            <p className="text-sm text-slate-400">No selections yet.</p>
-                          ) : (
-                            analytics.products.map((x) => (
-                              <BarRow key={x.name} label={x.name} count={x.count} max={maxProduct || 1} />
-                            ))
-                          )}
-                        </div>
-                      </div>
-
-                      {analytics.affinity.length > 0 && (
+                      {analytics.locations.filter((l) => l.name).length > 0 && (
                         <div>
                           <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                            Co-interest (pairs)
+                            Placements (merged)
                           </h4>
-                          <ul className="mt-2 space-y-1 text-sm text-slate-700">
-                            {analytics.affinity.map((a) => (
-                              <li key={`${a.a}-${a.b}`}>
-                                <span className="font-medium">{a.a}</span>
-                                {" + "}
-                                <span className="font-medium">{a.b}</span>
-                                <span className="text-slate-400"> — {a.count}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-
-                      {analytics.locations.some((l) => l.name) && (
-                        <div>
-                          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Placements (loc=)</h4>
                           <div className="mt-2 space-y-2">
                             {analytics.locations
                               .filter((l) => l.name)
+                              .slice(0, 8)
                               .map((x) => (
                                 <BarRow key={x.name} label={x.name} count={x.count} max={maxLoc || 1} />
                               ))}
