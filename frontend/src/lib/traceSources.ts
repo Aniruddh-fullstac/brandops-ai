@@ -33,4 +33,5 @@ export const sourceMatchers = {
   keywordGraph: (s: TraceStep) => s.phase === "keyword_graph" || /keyword_graph/i.test(s.agent),
   timing: (s: TraceStep) => s.phase === "timing",
   visuals: (s: TraceStep) => s.phase === "visual",
+  contentSchedule: (s: TraceStep) => s.phase === "content_schedule",
 };

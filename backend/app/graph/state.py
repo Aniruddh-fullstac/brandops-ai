@@ -26,6 +26,7 @@ class CampaignState(TypedDict, total=False):
 
     keyword_graph: dict[str, Any]
     campaign_calendar: dict[str, Any]
+    content_schedule: dict[str, Any]
     audience_segments: dict[str, Any]
     performance_sim: dict[str, Any]
 

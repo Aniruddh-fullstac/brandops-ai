@@ -21,6 +21,18 @@ CHANNEL_DEFAULTS: dict[str, dict[str, Any]] = {
         "cadence_per_week": 4,
         "format": "carousel / reel",
     },
+    "twitter": {
+        "best_days": [0, 1, 2, 3, 4, 5],
+        "best_hours": [9, 12, 15, 18],
+        "cadence_per_week": 7,
+        "format": "post / thread",
+    },
+    "push_notification": {
+        "best_days": [0, 1, 2, 3, 4, 5, 6],
+        "best_hours": [9, 12, 19],
+        "cadence_per_week": 4,
+        "format": "push",
+    },
     "tiktok": {
         "best_days": [1, 2, 3, 4, 5],
         "best_hours": [11, 15, 19],

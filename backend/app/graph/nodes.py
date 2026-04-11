@@ -402,7 +402,11 @@ async def node_creative_suite(state: CampaignState, *, client: AsyncOpenAI, sett
         role="You are a social creative director.",
         system_schema=(
             "Return JSON: linkedin (array of posts with hook, body, cta), instagram (array of carousel ideas), "
-            "tiktok_or_reels (array of {hook, beat_sheet, on_screen_text}), reasoning_summary."
+            "tiktok_or_reels (array of {hook, beat_sheet, on_screen_text}), "
+            "twitter (array of {text, hashtags}), "
+            "email_broadcasts (array of {subject, preheader, body}), "
+            "push_notifications (array of {title, body, trigger_context}), "
+            "reasoning_summary."
         ),
         user_blob=base + "\nResearch:\n" + digest,
     )
@@ -510,11 +514,11 @@ def should_refine(state: CampaignState) -> str:
     critique = state.get("critique") or {}
     scores = critique.get("scores") or {}
     if not scores:
-        return "localize"
+        return "post_critic_parallel"
     avg = sum(scores.values()) / max(len(scores), 1)
     if avg < 75 or any(v < 60 for v in scores.values()):
         return "refine"
-    return "localize"
+    return "post_critic_parallel"
 
 
 async def node_audience_segments(state: CampaignState, *, client: AsyncOpenAI, settings: Settings) -> dict[str, Any]:
@@ -584,7 +588,18 @@ async def node_timing(state: CampaignState, *, client: AsyncOpenAI, settings: Se
         if isinstance(ch_item, dict) and ch_item.get("channel"):
             channels.append(str(ch_item["channel"]).lower().strip())
     if not channels:
-        channels = ["linkedin", "instagram", "blog", "email", "whatsapp"]
+        channels = [
+            "linkedin",
+            "instagram",
+            "twitter",
+            "tiktok",
+            "blog",
+            "email",
+            "whatsapp",
+            "push_notification",
+            "seo",
+            "video",
+        ]
 
     calendar = build_campaign_calendar(
         channels=channels,
@@ -600,6 +615,60 @@ async def node_timing(state: CampaignState, *, client: AsyncOpenAI, settings: Se
             structured=calendar.get("summary"),
         ),
         "campaign_calendar": calendar,
+    }
+
+
+async def node_content_schedule(state: CampaignState, *, client: AsyncOpenAI, settings: Settings) -> dict[str, Any]:
+    """Merge calendar + creatives + localization into a single cross-platform timeline with captions and hashtags."""
+    r = _req(state)
+    cal = state.get("campaign_calendar") or {}
+    creatives = state.get("refined_creatives") or state.get("creatives") or {}
+    localized = state.get("localized") or {}
+    strat = state.get("strategy") or {}
+    out = await chat_json_object(
+        client=client,
+        model=settings.openai_model,
+        system=(
+            "You are a senior campaign editor. Merge the 30-day calendar with channel creatives into ONE executable plan. "
+            "Return JSON only:\n"
+            "  overview: string (short paragraph on publishing rhythm for leadership).\n"
+            "  platforms: object with keys exactly: instagram, linkedin, twitter, tiktok, email, whatsapp, "
+            "push_notification, blog, video. Each value is an array of objects with fields: "
+            "scheduled_at (ISO 8601 datetime), headline, caption, hashtags (array of strings), cta, format, "
+            "image_needed (boolean), image_prompt (string or null), "
+            "email_subject (null unless platform is email), email_preheader (null unless email), "
+            "whatsapp_message (null unless whatsapp), push_title (null unless push_notification), "
+            "push_body (null unless push_notification).\n"
+            "  timeline: flat array of the same row shape plus id (string like cs_001), sorted by scheduled_at ascending. "
+            "Include at least 28 rows across instagram, linkedin, twitter, tiktok, email, whatsapp, push_notification, blog. "
+            "Use campaign_calendar days + event times to build scheduled_at. "
+            "Adapt copy from creatives JSON; align tone with localized cultural notes when present. "
+            "Social posts: include 3-8 hashtags where relevant; omit hashtags for email, whatsapp, push."
+        ),
+        user=(
+            f"Brand: {r.brand_name}\nGeos: {r.geography_primary} / {r.geography_secondary}\n\n"
+            "campaign_calendar:\n"
+            + str(cal)[:14_000]
+            + "\n\ncreatives:\n"
+            + str(creatives)[:18_000]
+            + "\n\nlocalized:\n"
+            + str(localized)[:8000]
+            + "\n\nchannel_plan:\n"
+            + str(strat.get("channel_plan"))[:4000]
+        ),
+        temperature=0.35,
+    )
+    timeline = out.get("timeline") or []
+    return {
+        **_trace_step(
+            agent="unified_content_scheduler",
+            phase="content_schedule",
+            title="Cross-platform content & calendar merge",
+            summary=(out.get("overview") or "")[:500],
+            reasoning="Deterministic calendar dates anchor LLM-written platform-native copy, hashtags, and asset prompts.",
+            structured={"timeline_rows": len(timeline), "platform_keys": list((out.get("platforms") or {}).keys())},
+        ),
+        "content_schedule": out,
     }
 
 
@@ -711,6 +780,51 @@ async def node_visuals(state: CampaignState, *, client: AsyncOpenAI, settings: S
     }
 
 
+def _merge_partial_returns(*parts: dict[str, Any]) -> dict[str, Any]:
+    """Merge outputs of parallel node calls (trace/errors append; other keys last-wins)."""
+    out: dict[str, Any] = {}
+    traces: list[dict[str, Any]] = []
+    errors: list[str] = []
+    for p in parts:
+        for k, v in p.items():
+            if k == "trace":
+                traces.extend(v)
+            elif k == "errors":
+                errors.extend(v)
+            else:
+                out[k] = v
+    if traces:
+        out["trace"] = traces
+    if errors:
+        out["errors"] = errors
+    return out
+
+
+async def node_post_critic_parallel(
+    state: CampaignState, *, client: AsyncOpenAI, settings: Settings
+) -> dict[str, Any]:
+    """Run localize, keyword graph, timing, and audience in parallel (independent given prior state)."""
+    loc, kw, tim, aud = await asyncio.gather(
+        node_localize(state, client=client, settings=settings),
+        node_keyword_graph(state, client=client, settings=settings),
+        node_timing(state, client=client, settings=settings),
+        node_audience_segments(state, client=client, settings=settings),
+    )
+    return _merge_partial_returns(loc, kw, tim, aud)
+
+
+async def node_parallel_schedule_bundle(
+    state: CampaignState, *, client: AsyncOpenAI, settings: Settings
+) -> dict[str, Any]:
+    """Run unified content schedule, performance sim, and visuals in parallel."""
+    cs, perf, vis = await asyncio.gather(
+        node_content_schedule(state, client=client, settings=settings),
+        node_performance_sim(state, client=client, settings=settings),
+        node_visuals(state, client=client, settings=settings),
+    )
+    return _merge_partial_returns(cs, perf, vis)
+
+
 async def node_finalize(state: CampaignState, *, client: AsyncOpenAI, settings: Settings) -> dict[str, Any]:
     r = _req(state)
     strat = state.get("strategy") or {}
@@ -746,6 +860,7 @@ async def node_finalize(state: CampaignState, *, client: AsyncOpenAI, settings: 
         campaign_calendar=state.get("campaign_calendar") or {},
         audience_segments=state.get("audience_segments") or {},
         performance_sim=state.get("performance_sim") or {},
+        content_schedule=state.get("content_schedule") or {},
         image_prompts=state.get("image_prompts") or [],
         image_urls=state.get("image_urls") or [],
     )

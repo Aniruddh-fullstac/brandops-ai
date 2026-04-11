@@ -6,12 +6,8 @@ export const GRAPH_PIPELINE = [
   { id: "creatives", label: "Creatives", sub: "4 parallel channels" },
   { id: "critic", label: "QA critic", sub: "Scores & fixes" },
   { id: "refine", label: "Refine", sub: "Fix low scores" },
-  { id: "localize", label: "Localize", sub: "Dual geo" },
-  { id: "keyword_graph", label: "Keywords", sub: "PageRank graph" },
-  { id: "timing", label: "Calendar", sub: "30-day plan" },
-  { id: "audience", label: "Segments", sub: "2-3 personas" },
-  { id: "perf_sim", label: "Simulate", sub: "Projections" },
-  { id: "visuals", label: "Visuals", sub: "Key art" },
+  { id: "post_critic_parallel", label: "Localize & analyze", sub: "Geo, keywords, calendar, segments" },
+  { id: "parallel_schedule_bundle", label: "Schedule & assets", sub: "Content, perf, visuals" },
   { id: "finalize", label: "Deliver", sub: "Client bundle" },
 ] as const;
 

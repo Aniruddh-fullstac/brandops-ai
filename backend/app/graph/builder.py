@@ -33,23 +33,11 @@ def build_campaign_graph(client: AsyncOpenAI, settings: Settings):
     async def refine(s: CampaignState):
         return await nodes.node_refine(s, client=client, settings=settings)
 
-    async def audience(s: CampaignState):
-        return await nodes.node_audience_segments(s, client=client, settings=settings)
+    async def post_critic_parallel(s: CampaignState):
+        return await nodes.node_post_critic_parallel(s, client=client, settings=settings)
 
-    async def keyword_graph(s: CampaignState):
-        return await nodes.node_keyword_graph(s, client=client, settings=settings)
-
-    async def timing(s: CampaignState):
-        return await nodes.node_timing(s, client=client, settings=settings)
-
-    async def perf_sim(s: CampaignState):
-        return await nodes.node_performance_sim(s, client=client, settings=settings)
-
-    async def localize(s: CampaignState):
-        return await nodes.node_localize(s, client=client, settings=settings)
-
-    async def visuals(s: CampaignState):
-        return await nodes.node_visuals(s, client=client, settings=settings)
+    async def parallel_schedule_bundle(s: CampaignState):
+        return await nodes.node_parallel_schedule_bundle(s, client=client, settings=settings)
 
     async def finalize(s: CampaignState):
         return await nodes.node_finalize(s, client=client, settings=settings)
@@ -61,12 +49,8 @@ def build_campaign_graph(client: AsyncOpenAI, settings: Settings):
     g.add_node("creatives", creatives)
     g.add_node("critic", critic)
     g.add_node("refine", refine)
-    g.add_node("audience", audience)
-    g.add_node("keyword_graph", keyword_graph)
-    g.add_node("timing", timing)
-    g.add_node("perf_sim", perf_sim)
-    g.add_node("localize", localize)
-    g.add_node("visuals", visuals)
+    g.add_node("post_critic_parallel", post_critic_parallel)
+    g.add_node("parallel_schedule_bundle", parallel_schedule_bundle)
     g.add_node("finalize", finalize)
 
     # Main pipeline
@@ -77,17 +61,17 @@ def build_campaign_graph(client: AsyncOpenAI, settings: Settings):
     g.add_edge("strategy", "creatives")
     g.add_edge("creatives", "critic")
 
-    # Conditional refinement: if critic scores low → refine → localize, else → localize
-    g.add_conditional_edges("critic", nodes.should_refine, {"refine": "refine", "localize": "localize"})
-    g.add_edge("refine", "localize")
+    # Conditional refinement: if critic scores low → refine → parallel wave, else → parallel wave
+    g.add_conditional_edges(
+        "critic",
+        nodes.should_refine,
+        {"refine": "refine", "post_critic_parallel": "post_critic_parallel"},
+    )
+    g.add_edge("refine", "post_critic_parallel")
 
-    # After localize: parallel deterministic engines + visuals
-    g.add_edge("localize", "keyword_graph")
-    g.add_edge("keyword_graph", "timing")
-    g.add_edge("timing", "audience")
-    g.add_edge("audience", "perf_sim")
-    g.add_edge("perf_sim", "visuals")
-    g.add_edge("visuals", "finalize")
+    # Localize + keyword graph + timing + audience (parallel), then schedule + perf + visuals (parallel)
+    g.add_edge("post_critic_parallel", "parallel_schedule_bundle")
+    g.add_edge("parallel_schedule_bundle", "finalize")
     g.add_edge("finalize", END)
 
     return g.compile()

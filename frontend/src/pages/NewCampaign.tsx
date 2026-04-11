@@ -71,7 +71,11 @@ export default function NewCampaign() {
             if (!line.startsWith("data:")) continue;
             const evt = JSON.parse(line.slice(5).trim()) as StreamEvent;
             if (evt.event === "run_started") store.setRunId(evt.payload.run_id);
-            if (evt.event === "graph_node_finished") store.addGraphNode(evt.payload.node);
+            if (evt.event === "graph_node_finished") {
+              store.addGraphNode(evt.payload.node);
+              // Refine is skipped when critic scores are high; mark it done when the next stage runs.
+              if (evt.payload.node === "post_critic_parallel") store.addGraphNode("refine");
+            }
             if (evt.event === "step_completed") store.addStep(evt.payload.step);
             if (evt.event === "artifact_partial") store.setPartial(evt.payload.kind, evt.payload.data);
             if (evt.event === "run_completed") {

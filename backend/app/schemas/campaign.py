@@ -30,6 +30,7 @@ class AgentTraceStep(BaseModel):
         "localize",
         "keyword_graph",
         "timing",
+        "content_schedule",
         "audience",
         "performance",
         "visual",
@@ -72,6 +73,10 @@ class CampaignArtifacts(BaseModel):
     campaign_calendar: dict[str, Any] = Field(default_factory=dict)
     audience_segments: dict[str, Any] = Field(default_factory=dict)
     performance_sim: dict[str, Any] = Field(default_factory=dict)
+    content_schedule: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Unified per-platform copy + timeline (captions, hashtags, email, WhatsApp, push).",
+    )
     image_prompts: list[str] = Field(default_factory=list)
     image_urls: list[str] = Field(default_factory=list)
 
