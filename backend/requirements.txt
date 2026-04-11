@@ -1,0 +1,31 @@
+# Core API
+fastapi>=0.115.6
+uvicorn[standard]>=0.32.1
+python-multipart>=0.0.12
+
+# Orchestration
+langgraph>=0.2.59
+langchain-core>=0.3.29
+
+# OpenAI (Responses API + images + structured outputs)
+openai>=1.59.0
+
+# HTTP / parsing
+httpx>=0.28.1
+beautifulsoup4>=4.12.3
+lxml>=5.3.0
+
+# Config
+pydantic>=2.10.3
+pydantic-settings>=2.7.0
+
+# Firebase
+firebase-admin>=6.6.0
+
+# Deterministic engines (NetworkX: NumPy + SciPy for PageRank / community detection)
+numpy>=1.26.0
+scipy>=1.11.0
+networkx>=3.4.2
+
+# Scheduling
+python-dateutil>=2.9.0

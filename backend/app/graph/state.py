@@ -1,0 +1,38 @@
+from __future__ import annotations
+
+import operator
+from typing import Annotated, Any, TypedDict
+
+
+class CampaignState(TypedDict, total=False):
+    request: dict[str, Any]
+    run_id: str
+    generate_images: bool
+
+    brand_url: str | None
+    brand_page_text: str | None
+    brand_page_content_type: str | None
+
+    competitor_research: dict[str, Any]
+    social_research: dict[str, Any]
+    trends_research: dict[str, Any]
+    reddit_snapshot: dict[str, Any]
+
+    strategy: dict[str, Any]
+    creatives: dict[str, Any]
+    critique: dict[str, Any]
+    refined_creatives: dict[str, Any]
+    localized: dict[str, Any]
+
+    keyword_graph: dict[str, Any]
+    campaign_calendar: dict[str, Any]
+    audience_segments: dict[str, Any]
+    performance_sim: dict[str, Any]
+
+    image_prompts: list[str]
+    image_urls: list[str]
+
+    final_artifacts: dict[str, Any]
+
+    trace: Annotated[list[dict[str, Any]], operator.add]
+    errors: Annotated[list[str], operator.add]
