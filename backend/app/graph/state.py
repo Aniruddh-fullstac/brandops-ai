@@ -39,3 +39,4 @@ class CampaignState(TypedDict, total=False):
 
     trace: Annotated[list[dict[str, Any]], operator.add]
     errors: Annotated[list[str], operator.add]
+    activities: Annotated[list[dict[str, Any]], operator.add]

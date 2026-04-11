@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import re
 from pathlib import Path
 
@@ -41,6 +42,10 @@ def _suffix_from_response(r: httpx.Response) -> str:
     return ".webp"
 
 
+def _mime_from_ext(ext: str) -> str:
+    return {".webp": "image/webp", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}.get(ext, "image/webp")
+
+
 async def persist_remote_images(
     *,
     urls: list[str],
@@ -48,8 +53,9 @@ async def persist_remote_images(
     settings: Settings,
 ) -> list[str]:
     """
-    Download remote image URLs and save under media_root/runs/{run_id}/.
-    Returns same-origin paths like /api/media/runs/{run_id}/image_00.webp
+    Download remote image URLs, save locally AND encode as base64 data URIs.
+    Returns base64 data URIs for direct embedding (stored in Firestore).
+    Also persists to disk as fallback.
     """
     if not urls or not is_safe_run_id(run_id):
         return []
@@ -72,7 +78,12 @@ async def persist_remote_images(
             if not (r.content and len(r.content) > 8):
                 continue
             ext = _suffix_from_response(r)
+            # Save to disk (fallback)
             path = out_dir / f"image_{i:02d}{ext}"
             path.write_bytes(r.content)
-            saved.append(f"/api/media/runs/{run_id}/{path.name}")
+            # Encode as base64 data URI for Firestore storage
+            mime = _mime_from_ext(ext)
+            b64 = base64.b64encode(r.content).decode("ascii")
+            data_uri = f"data:{mime};base64,{b64}"
+            saved.append(data_uri)
     return saved

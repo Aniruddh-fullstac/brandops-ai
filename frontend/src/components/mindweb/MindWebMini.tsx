@@ -4,20 +4,8 @@ import { MindWebGraph } from "./MindWebGraph";
 import { GRAPH_PIPELINE } from "../../workflowConfig";
 import type { TraceStep } from "../../types";
 import type { AgentNodeData, AgentStatus } from "./types";
+import { DEPENDENCIES, getStepsForNode } from "./graphHelpers";
 import { Maximize2, Minimize2, Network } from "lucide-react";
-
-const DEPENDENCIES: Record<string, string[]> = {
-  ingest: [],
-  brand_fetch: ["ingest"],
-  parallel_research: ["brand_fetch"],
-  strategy: ["parallel_research"],
-  creatives: ["strategy"],
-  critic: ["creatives"],
-  refine: ["critic"],
-  post_critic_parallel: ["refine"],
-  parallel_schedule_bundle: ["post_critic_parallel"],
-  finalize: ["parallel_schedule_bundle"],
-};
 
 type Props = {
   graphNodesDone: Set<string>;
@@ -43,7 +31,7 @@ export function MindWebMini({ graphNodesDone, busy, steps, onExpand }: Props) {
         if (graphNodesDone.has(node.id)) status = "complete";
         else if (activePhases.has(node.id) || (busy && doneCnt > 0 && GRAPH_PIPELINE[doneCnt]?.id === node.id)) status = "loading";
 
-        const phaseSteps = steps.filter((s) => s.phase === node.id);
+        const phaseSteps = getStepsForNode(node.id, steps);
         const latest = phaseSteps[phaseSteps.length - 1];
         const allSources = phaseSteps.flatMap((s) => s.sources || []);
         const allQueries = phaseSteps.flatMap((s) => s.web_queries || []);

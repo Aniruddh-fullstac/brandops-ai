@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MindWebGraph } from "./MindWebGraph";
 import { GRAPH_PIPELINE } from "../../workflowConfig";
-import type { TraceStep } from "../../types";
+import type { AgentActivity, TraceStep } from "../../types";
 import type { AgentNodeData, AgentStatus } from "./types";
 import { Minimize2, RotateCcw } from "lucide-react";
 
@@ -11,28 +11,19 @@ type Props = {
   graphNodesDone: Set<string>;
   busy: boolean;
   steps: TraceStep[];
+  activities: AgentActivity[];
   completedCount: number;
   totalCount: number;
   onMinimize: () => void;
 };
 
-const DEPENDENCIES: Record<string, string[]> = {
-  ingest: [],
-  brand_fetch: ["ingest"],
-  parallel_research: ["brand_fetch"],
-  strategy: ["parallel_research"],
-  creatives: ["strategy"],
-  critic: ["creatives"],
-  refine: ["critic"],
-  post_critic_parallel: ["refine"],
-  parallel_schedule_bundle: ["post_critic_parallel"],
-  finalize: ["parallel_schedule_bundle"],
-};
+import { DEPENDENCIES, getNodeIdForPhase, getStepsForNode } from "./graphHelpers";
 
 /** Build agent nodes — only show agents that are triggered (loading/complete), not idle future ones */
 function buildAgents(
   done: Set<string>,
   steps: TraceStep[],
+  activities: AgentActivity[],
   busy: boolean,
   doneCnt: number
 ): AgentNodeData[] {
@@ -49,15 +40,19 @@ function buildAgents(
       status = "loading";
     }
 
-    // Find the LATEST trace step for this phase to get brand-specific info
-    const phaseSteps = steps.filter((s) => s.phase === node.id);
+    // Find trace steps matching this pipeline node (handles phase name mismatches)
+    const phaseSteps = getStepsForNode(node.id, steps);
     const latestStep = phaseSteps[phaseSteps.length - 1];
 
-    // Aggregate all sources and queries from all steps in this phase
     const allSources = phaseSteps.flatMap((s) => s.sources || []);
     const allQueries = phaseSteps.flatMap((s) => s.web_queries || []);
-    const allTools = phaseSteps.flatMap((s) => (s.tool_calls || []).map((t) => t.name));
-    const uniqueTools = [...new Set(allTools)];
+    const allTools = [...new Set(phaseSteps.flatMap((s) => (s.tool_calls || []).map((t) => t.name)))];
+
+    // Match activities to this node using the same phase mapping
+    const nodeActivities = activities.filter((a) => {
+      const mappedNode = getNodeIdForPhase(a.phase);
+      return mappedNode === node.id || a.phase === node.id;
+    });
 
     return {
       id: node.id,
@@ -70,7 +65,8 @@ function buildAgents(
       liveSummary: latestStep?.summary || latestStep?.reasoning || undefined,
       liveQueries: allQueries.length > 0 ? allQueries : undefined,
       liveSources: allSources.length > 0 ? allSources : undefined,
-      liveTools: uniqueTools.length > 0 ? uniqueTools : undefined,
+      liveTools: allTools.length > 0 ? allTools : undefined,
+      liveActivities: nodeActivities.length > 0 ? nodeActivities : undefined,
     };
   });
 }
@@ -107,6 +103,7 @@ export function MindWebLoader({
   graphNodesDone,
   busy,
   steps,
+  activities,
   completedCount,
   totalCount,
   onMinimize,
@@ -119,7 +116,7 @@ export function MindWebLoader({
     const update = () => {
       setDims({
         w: window.innerWidth,
-        h: window.innerHeight - 100, // header + footer
+        h: window.innerHeight - 100,
       });
     };
     update();
@@ -128,9 +125,9 @@ export function MindWebLoader({
   }, []);
 
   const agents = useMemo(
-    () => buildAgents(graphNodesDone, steps, busy, completedCount),
+    () => buildAgents(graphNodesDone, steps, activities, busy, completedCount),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [graphNodesDone, steps, busy, completedCount, replayKey]
+    [graphNodesDone, steps, activities, busy, completedCount, replayKey]
   );
 
   const pct = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;

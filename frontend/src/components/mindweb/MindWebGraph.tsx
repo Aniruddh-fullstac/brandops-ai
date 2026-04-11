@@ -207,8 +207,39 @@ function InfoPanel({ node, onClose }: { node: AgentNodeData; onClose: () => void
           </motion.div>
         )}
 
+        {/* Live activity feed from backend */}
+        {node.liveActivities && node.liveActivities.length > 0 && (
+          <motion.div className="mb-2.5" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}>
+            <p className="text-[9px] font-bold uppercase tracking-widest text-slate-600 mb-1">Activity</p>
+            <div className="space-y-0.5 max-h-[100px] overflow-y-auto">
+              {node.liveActivities.map((act, i) => (
+                <motion.div key={act.id} className="flex items-start gap-1.5 rounded bg-white/5 px-2 py-1"
+                  initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.06 }}>
+                  <span className="text-[8px] mt-0.5">
+                    {act.action === "fetching_url" ? "\u{1F310}" :
+                     act.action === "web_search" ? "\u{1F50D}" :
+                     act.action === "reddit_search" ? "\u{1F4AC}" :
+                     act.action === "llm_call" ? "\u{1F9E0}" :
+                     act.action === "reading_source" ? "\u{1F4D6}" :
+                     act.action === "generating_image" ? "\u{1F3A8}" :
+                     act.action === "analyzing" ? "\u{1F52C}" :
+                     "\u{2699}\u{FE0F}"}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[9px] text-slate-300 leading-snug truncate">{act.detail}</p>
+                    {act.url && (
+                      <p className="text-[8px] text-indigo-400/70 truncate">{act.url}</p>
+                    )}
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+
         {/* No data yet — show waiting state */}
-        {!node.liveTitle && !node.liveSummary && node.status === "loading" && (
+        {!node.liveTitle && !node.liveSummary && (!node.liveActivities || node.liveActivities.length === 0) && node.status === "loading" && (
           <div className="flex items-center gap-2 py-2">
             <motion.div className="h-1 w-1 rounded-full bg-indigo-400"
               animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1.2, repeat: Infinity }} />

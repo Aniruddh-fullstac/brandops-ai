@@ -11,7 +11,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import { apiJson } from "../lib/api";
 import { auth } from "../lib/firebase";
 import { GRAPH_PIPELINE } from "../workflowConfig";
-import type { Artifacts, CampaignRecord, CampaignResultPayload, TraceStep } from "../types";
+import type { AgentActivity, Artifacts, CampaignRecord, CampaignResultPayload, TraceStep } from "../types";
 
 const LAST_CAMPAIGN_KEY = "campaigngraph:lastCampaignId";
 
@@ -20,6 +20,7 @@ type Store = {
   campaignId: string | null;
   busy: boolean;
   steps: TraceStep[];
+  activities: AgentActivity[];
   graphNodesDone: Set<string>;
   partial: Record<string, unknown>;
   result: CampaignResultPayload | null;
@@ -27,11 +28,14 @@ type Store = {
   banner: string | null;
   artifacts: Artifacts;
   hydrateLoading: boolean;
+  /** All campaigns available for this user */
+  campaignList: CampaignRecord[];
   setRunId: (v: string | null) => void;
   setCampaignId: (v: string | null) => void;
   setBusy: (v: boolean) => void;
   setSteps: (steps: TraceStep[]) => void;
   addStep: (s: TraceStep) => void;
+  addActivity: (a: AgentActivity) => void;
   addGraphNode: (n: string) => void;
   setPartial: (k: string, v: unknown) => void;
   setResult: (r: CampaignResultPayload | null) => void;
@@ -39,6 +43,8 @@ type Store = {
   setBanner: (b: string | null) => void;
   reset: () => void;
   refreshFromServer: () => Promise<void>;
+  /** Switch to a specific campaign by ID */
+  loadCampaign: (id: string) => Promise<void>;
 };
 
 const Ctx = createContext<Store>(null!);
@@ -53,15 +59,18 @@ export function CampaignStoreProvider({ children }: { children: ReactNode }) {
   const [campaignId, setCampaignId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [steps, setStepsState] = useState<TraceStep[]>([]);
+  const [activities, setActivities] = useState<AgentActivity[]>([]);
   const [graphNodesDone, setGraphNodesDone] = useState<Set<string>>(new Set());
   const [partial, _setPartial] = useState<Record<string, unknown>>({});
   const [result, setResult] = useState<CampaignResultPayload | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const [banner, setBanner] = useState<string | null>(null);
   const [hydrateLoading, setHydrateLoading] = useState(true);
+  const [campaignList, setCampaignList] = useState<CampaignRecord[]>([]);
   const hydratedOnce = useRef(false);
 
   const addStep = (s: TraceStep) => setStepsState((p) => [...p, s]);
+  const addActivity = (a: AgentActivity) => setActivities((p) => [...p, a]);
   const addGraphNode = (n: string) => setGraphNodesDone((p) => new Set([...p, n]));
   const setPartial = (k: string, v: unknown) => _setPartial((p) => ({ ...p, [k]: v }));
   const setSteps = (s: TraceStep[]) => setStepsState(s);
@@ -70,6 +79,7 @@ export function CampaignStoreProvider({ children }: { children: ReactNode }) {
     setRunId(null);
     setCampaignId(null);
     setStepsState([]);
+    setActivities([]);
     setGraphNodesDone(new Set());
     _setPartial({});
     setResult(null);
@@ -82,6 +92,7 @@ export function CampaignStoreProvider({ children }: { children: ReactNode }) {
     setRunId(c.run_id ?? null);
     setCampaignId(c.id ?? null);
     setStepsState(c.trace || []);
+    setActivities([]);
     setResult({
       request: (c.request || {}) as Record<string, unknown>,
       trace: c.trace || [],
@@ -92,10 +103,25 @@ export function CampaignStoreProvider({ children }: { children: ReactNode }) {
     setGraphNodesDone(new Set(GRAPH_PIPELINE.map((n) => n.id)));
   }, []);
 
+  /** Load a specific campaign by ID and switch to it */
+  const loadCampaign = useCallback(async (id: string) => {
+    try {
+      const full = await apiJson<CampaignRecord>(`/api/campaigns/${id}`);
+      if (full.artifacts && hasArtifactPayload(full.artifacts)) {
+        hydrateFromRecord(full);
+        rememberLastCampaignId(id);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [hydrateFromRecord]);
+
   const refreshFromServer = useCallback(async () => {
     try {
       const list = await apiJson<{ campaigns: CampaignRecord[] }>("/api/campaigns");
       const campaigns = list.campaigns || [];
+      setCampaignList(campaigns);
+
       const completed = campaigns.filter((x) => x.status === "completed");
       if (!completed.length) return;
 
@@ -149,6 +175,7 @@ export function CampaignStoreProvider({ children }: { children: ReactNode }) {
         campaignId,
         busy,
         steps,
+        activities,
         graphNodesDone,
         partial,
         result,
@@ -156,11 +183,13 @@ export function CampaignStoreProvider({ children }: { children: ReactNode }) {
         banner,
         artifacts,
         hydrateLoading,
+        campaignList,
         setRunId,
         setCampaignId,
         setBusy,
         setSteps,
         addStep,
+        addActivity,
         addGraphNode,
         setPartial,
         setResult,
@@ -168,6 +197,7 @@ export function CampaignStoreProvider({ children }: { children: ReactNode }) {
         setBanner,
         reset,
         refreshFromServer,
+        loadCampaign,
       }}
     >
       {children}

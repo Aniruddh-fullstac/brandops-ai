@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { WorkflowViz } from "../components/WorkflowViz";
 import { MindWebLoader, MindWebMini } from "../components/mindweb";
+import { getNodeIdForPhase } from "../components/mindweb/graphHelpers";
 import { rememberLastCampaignId, useCampaignStore } from "../components/CampaignStore";
 import { StructuredData } from "../components/presentation/StructuredData";
 import { apiFetch } from "../lib/api";
@@ -56,7 +57,8 @@ function SourceList({ steps }: { steps: TraceStep[] }) {
 /* ── Agent card ── */
 function AgentCard({ step, index }: { step: TraceStep; index: number }) {
   const [open, setOpen] = useState(false);
-  const node = GRAPH_PIPELINE.find((n) => n.id === step.phase);
+  const nodeId = getNodeIdForPhase(step.phase) || step.phase;
+  const node = GRAPH_PIPELINE.find((n) => n.id === nodeId);
   const Icon = node?.icon || Cpu;
 
   // Color map for phase badges
@@ -72,7 +74,7 @@ function AgentCard({ step, index }: { step: TraceStep; index: number }) {
     parallel_schedule_bundle: "bg-teal-50 text-teal-700 border-teal-200",
     finalize: "bg-indigo-50 text-indigo-700 border-indigo-200",
   };
-  const badgeClass = phaseColor[step.phase] || "bg-slate-50 text-slate-600 border-slate-200";
+  const badgeClass = phaseColor[nodeId] || phaseColor[step.phase] || "bg-slate-50 text-slate-600 border-slate-200";
 
   return (
     <article
@@ -173,7 +175,7 @@ function EmptyState() {
 /* ── Main page ── */
 export default function NewCampaign() {
   const store = useCampaignStore();
-  const { busy, steps, graphNodesDone, runId, partial, result, errors, banner, artifacts } = store;
+  const { busy, steps, activities, graphNodesDone, runId, partial, result, errors, banner, artifacts } = store;
   const hasResults = steps.length > 0 || busy;
 
   // Mind Web animation state
@@ -221,6 +223,7 @@ export default function NewCampaign() {
               if (evt.payload.node === "post_critic_parallel") store.addGraphNode("refine");
             }
             if (evt.event === "step_completed") store.addStep(evt.payload.step);
+            if (evt.event === "agent_activity") store.addActivity(evt.payload);
             if (evt.event === "artifact_partial") store.setPartial(evt.payload.kind, evt.payload.data);
             if (evt.event === "run_completed") {
               store.setResult(evt.payload.result);
@@ -253,6 +256,7 @@ export default function NewCampaign() {
         graphNodesDone={graphNodesDone}
         busy={busy}
         steps={steps}
+        activities={activities}
         completedCount={doneCnt}
         totalCount={GRAPH_PIPELINE.length}
         onMinimize={() => setShowMindWeb(false)}

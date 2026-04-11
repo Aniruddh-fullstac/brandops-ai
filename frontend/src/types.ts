@@ -20,10 +20,22 @@ export type CampaignResultPayload = {
   artifacts: Artifacts;
 };
 
+export type AgentActivity = {
+  id: string;
+  phase: string;
+  agent: string;
+  action: string;
+  detail: string;
+  url?: string | null;
+  tool?: string | null;
+  progress?: string | null;
+};
+
 export type StreamEvent =
   | { event: "run_started"; payload: { run_id: string } }
   | { event: "graph_node_finished"; payload: { node: string; patch_keys: string[] } }
   | { event: "step_completed"; payload: { step: TraceStep } }
+  | { event: "agent_activity"; payload: AgentActivity }
   | { event: "artifact_partial"; payload: { kind: string; data: unknown } }
   | {
       event: "run_completed";

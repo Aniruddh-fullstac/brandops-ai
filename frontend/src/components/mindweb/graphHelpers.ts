@@ -1,0 +1,57 @@
+import type { TraceStep } from "../../types";
+
+/** DAG dependencies between pipeline nodes */
+export const DEPENDENCIES: Record<string, string[]> = {
+  ingest: [],
+  brand_fetch: ["ingest"],
+  parallel_research: ["brand_fetch"],
+  strategy: ["parallel_research"],
+  creatives: ["strategy"],
+  critic: ["creatives"],
+  refine: ["critic"],
+  post_critic_parallel: ["refine"],
+  parallel_schedule_bundle: ["post_critic_parallel"],
+  finalize: ["parallel_schedule_bundle"],
+};
+
+/**
+ * Maps pipeline node IDs → backend phase strings.
+ *
+ * The backend uses different phase names than the graph node IDs:
+ *   - "parallel_research" node → steps with phase "research"
+ *   - "creatives" node → steps with phase "creative"
+ *   - "post_critic_parallel" → steps with phases "localize", "keyword_graph", "audience", "timing"
+ *   - "parallel_schedule_bundle" → steps with phases "content_schedule", "performance", "visual"
+ *
+ * Steps whose phase exactly matches a node ID are also captured (ingest, brand_fetch, strategy, critic, refine, finalize).
+ */
+const NODE_TO_PHASES: Record<string, string[]> = {
+  ingest: ["ingest"],
+  brand_fetch: ["brand_fetch"],
+  parallel_research: ["research"],
+  strategy: ["strategy"],
+  creatives: ["creative"],
+  critic: ["critic"],
+  refine: ["refine"],
+  post_critic_parallel: ["localize", "keyword_graph", "audience", "timing"],
+  parallel_schedule_bundle: ["content_schedule", "performance", "visual"],
+  finalize: ["finalize"],
+};
+
+/** Get all trace steps that belong to a given pipeline node */
+export function getStepsForNode(nodeId: string, steps: TraceStep[]): TraceStep[] {
+  const phases = NODE_TO_PHASES[nodeId];
+  if (!phases) return steps.filter((s) => s.phase === nodeId);
+  const phaseSet = new Set(phases);
+  return steps.filter((s) => phaseSet.has(s.phase));
+}
+
+/** Reverse lookup: given a backend phase string, find the pipeline node ID */
+const PHASE_TO_NODE: Record<string, string> = {};
+for (const [nodeId, phases] of Object.entries(NODE_TO_PHASES)) {
+  for (const p of phases) PHASE_TO_NODE[p] = nodeId;
+}
+
+export function getNodeIdForPhase(phase: string): string | undefined {
+  return PHASE_TO_NODE[phase] || (Object.keys(NODE_TO_PHASES).includes(phase) ? phase : undefined);
+}

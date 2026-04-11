@@ -1,4 +1,5 @@
 import type { LucideIcon } from "lucide-react";
+import type { AgentActivity } from "../../types";
 
 export type AgentStatus = "idle" | "loading" | "complete";
 
@@ -15,4 +16,6 @@ export type AgentNodeData = {
   liveQueries?: string[];
   liveSources?: { url: string; title?: string | null }[];
   liveTools?: string[];
+  /** Real-time activity feed from agent_activity events */
+  liveActivities?: AgentActivity[];
 };

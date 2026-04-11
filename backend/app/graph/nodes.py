@@ -8,7 +8,7 @@ from typing import Any
 from openai import AsyncOpenAI
 
 from app.config import Settings
-from app.schemas.campaign import AgentTraceStep, CampaignArtifacts, CampaignRequest, SourceRef, ToolInvocation
+from app.schemas.campaign import AgentActivity, AgentTraceStep, CampaignArtifacts, CampaignRequest, SourceRef, ToolInvocation
 from app.services.fetch import fetch_url_text
 from app.services.image_store import persist_remote_images
 from app.services.images import generate_campaign_images
@@ -52,6 +52,28 @@ def _trace_step(
     return {"trace": [step.model_dump()]}
 
 
+def _act(
+    *,
+    phase: str,
+    agent: str,
+    action: str,
+    detail: str,
+    url: str | None = None,
+    tool: str | None = None,
+    progress: str | None = None,
+) -> dict[str, Any]:
+    """Create a single activity entry dict (not wrapped in state key)."""
+    return AgentActivity(
+        id=_tid(), phase=phase, agent=agent, action=action,
+        detail=detail, url=url, tool=tool, progress=progress,
+    ).model_dump()
+
+
+def _activities(*acts: dict[str, Any]) -> dict[str, Any]:
+    """Return a state patch that appends multiple activity entries."""
+    return {"activities": list(acts)}
+
+
 def _req(state: CampaignState) -> CampaignRequest:
     return CampaignRequest.model_validate(state["request"])
 
@@ -81,6 +103,12 @@ def build_node_context(state: CampaignState) -> str:
 async def node_ingest(state: CampaignState) -> dict[str, Any]:
     r = _req(state)
     return {
+        **_activities(
+            _act(phase="ingest", agent="ingest_orchestrator", action="parsing",
+                 detail=f"Parsing campaign brief for {r.brand_name}"),
+            _act(phase="ingest", agent="ingest_orchestrator", action="configuring",
+                 detail=f"Setting target geographies: {r.geography_primary}, {r.geography_secondary}"),
+        ),
         **_trace_step(
             agent="ingest_orchestrator",
             phase="ingest",
@@ -117,12 +145,27 @@ async def node_brand_fetch(
     tools = [
         ToolInvocation(name="fetch_url", args={"url": url}, result_summary=None),
     ]
+    acts = [
+        _act(phase="brand_fetch", agent="brand_site_analyst", action="fetching_url",
+             detail=f"Crawling {url}", url=url, tool="fetch_url"),
+    ]
     try:
         text, ctype = await fetch_url_text(url, settings)
         tools[0].result_summary = f"Fetched {len(text)} chars ({ctype or 'unknown'})."
         excerpt = text[:1200] + ("…" if len(text) > 1200 else "")
         summary = "Extracted readable text and light IA signals from the live site."
+        acts.append(_act(
+            phase="brand_fetch", agent="brand_site_analyst", action="analyzing",
+            detail=f"Extracted {len(text):,} chars of content from {url}",
+            url=url, tool="text_extraction",
+        ))
+        acts.append(_act(
+            phase="brand_fetch", agent="brand_site_analyst", action="llm_call",
+            detail=f"Analyzing brand positioning and tone from {r.brand_name} website",
+            tool="gpt-4o-mini",
+        ))
         return {
+            **_activities(*acts),
             **_trace_step(
                 agent="brand_site_analyst",
                 phase="brand_fetch",
@@ -166,9 +209,26 @@ async def _competitor_agent(state: CampaignState, client: AsyncOpenAI, settings:
         + f"\n\nFocus: map the competitive set around `{r.brand_name}`. "
         "Include both global and regional players where relevant."
     )
+    acts = [
+        _act(phase="research", agent="competitor_intelligence", action="web_search",
+             detail=f"Searching web for {r.brand_name} competitors and market positioning",
+             tool="web_search"),
+    ]
     pkt = await run_responses_web_research(
         client=client, settings=settings, instructions=instructions, user_input=user
     )
+    # Add activities for each source found
+    for s in pkt.sources[:5]:
+        acts.append(_act(
+            phase="research", agent="competitor_intelligence", action="reading_source",
+            detail=f"Reading: {s.get('title', s['url'])}",
+            url=s["url"], tool="web_search",
+        ))
+    acts.append(_act(
+        phase="research", agent="competitor_intelligence", action="llm_call",
+        detail=f"Structuring competitive landscape for {r.brand_name}",
+        tool="gpt-4o-mini",
+    ))
     structured = await chat_json_object(
         client=client,
         model=settings.openai_model_fast,
@@ -182,6 +242,7 @@ async def _competitor_agent(state: CampaignState, client: AsyncOpenAI, settings:
     )
     sources = [SourceRef(url=s["url"], title=s.get("title")) for s in pkt.sources[:40]]
     return {
+        **_activities(*acts),
         "packet": {
             "narrative": pkt.text,
             "structured": structured,
@@ -209,6 +270,10 @@ async def _social_agent(state: CampaignState, client: AsyncOpenAI, settings: Set
     r = _req(state)
     ctx = build_node_context(state)
     reddit_q = f"{r.brand_name} {r.industry_hint or ''} review OR experience"
+    acts = [
+        _act(phase="research", agent="social_media_intelligence", action="reddit_search",
+             detail=f"Searching Reddit for \"{reddit_q}\"", tool="reddit_search"),
+    ]
     reddit_posts: list[dict] = []
     reddit_err: str | None = None
     try:
@@ -236,9 +301,23 @@ async def _social_agent(state: CampaignState, client: AsyncOpenAI, settings: Set
         + str(digest)[:8000]
         + "\n\nInfer platform-native tactics for this category."
     )
+    acts.append(_act(
+        phase="research", agent="social_media_intelligence", action="web_search",
+        detail=f"Searching social platforms for {r.brand_name} content patterns",
+        tool="web_search",
+    ))
     pkt = await run_responses_web_research(
         client=client, settings=settings, instructions=instructions, user_input=user
     )
+    for s in pkt.sources[:4]:
+        acts.append(_act(
+            phase="research", agent="social_media_intelligence", action="reading_source",
+            detail=f"Analyzing: {s.get('title', s['url'])}", url=s["url"],
+        ))
+    acts.append(_act(
+        phase="research", agent="social_media_intelligence", action="llm_call",
+        detail=f"Extracting social engagement patterns for {r.brand_name}", tool="gpt-4o-mini",
+    ))
     structured = await chat_json_object(
         client=client,
         model=settings.openai_model_fast,
@@ -251,6 +330,7 @@ async def _social_agent(state: CampaignState, client: AsyncOpenAI, settings: Set
     )
     sources = [SourceRef(url=s["url"], title=s.get("title")) for s in pkt.sources[:40]]
     return {
+        **_activities(*acts),
         "packet": {"narrative": pkt.text, "structured": structured, "sources": [s.model_dump() for s in sources], "web_queries": pkt.web_queries},
         "reddit": digest,
         "trace": [
@@ -279,9 +359,22 @@ async def _trends_agent(state: CampaignState, client: AsyncOpenAI, settings: Set
         "regulatory or technology shifts affecting this space in the next 90 days."
     )
     user = ctx + f"\n\nAnchor brand: {r.brand_name}. Surface trend evidence with URLs."
+    acts = [
+        _act(phase="research", agent="market_trends", action="web_search",
+             detail=f"Searching for market trends affecting {r.brand_name}", tool="web_search"),
+    ]
     pkt = await run_responses_web_research(
         client=client, settings=settings, instructions=instructions, user_input=user
     )
+    for s in pkt.sources[:4]:
+        acts.append(_act(
+            phase="research", agent="market_trends", action="reading_source",
+            detail=f"Analyzing: {s.get('title', s['url'])}", url=s["url"],
+        ))
+    acts.append(_act(
+        phase="research", agent="market_trends", action="llm_call",
+        detail=f"Synthesizing trend impact analysis for {r.brand_name}", tool="gpt-4o-mini",
+    ))
     structured = await chat_json_object(
         client=client,
         model=settings.openai_model_fast,
@@ -293,6 +386,7 @@ async def _trends_agent(state: CampaignState, client: AsyncOpenAI, settings: Set
     )
     sources = [SourceRef(url=s["url"], title=s.get("title")) for s in pkt.sources[:40]]
     return {
+        **_activities(*acts),
         "packet": {"narrative": pkt.text, "structured": structured, "sources": [s.model_dump() for s in sources], "web_queries": pkt.web_queries},
         "trace": [
             AgentTraceStep(

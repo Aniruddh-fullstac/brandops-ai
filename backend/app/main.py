@@ -481,9 +481,11 @@ async def stream_campaign(
         "run_id": run_id,
         "trace": [],
         "errors": [],
+        "activities": [],
     }
     last: dict[str, Any] = initial
     trace_len = 0
+    activity_len = 0
     sent_keys: set[str] = set()
     try:
         async for packet in graph.astream(
@@ -506,11 +508,18 @@ async def stream_campaign(
             elif mode == "values" and isinstance(chunk, dict):
                 state = chunk
                 last = state
+                # Stream new trace steps
                 tr = state.get("trace") or []
                 if len(tr) > trace_len:
                     for step in tr[trace_len:]:
                         yield _sse({"event": "step_completed", "payload": {"step": step}})
                     trace_len = len(tr)
+                # Stream new agent activities
+                acts = state.get("activities") or []
+                if len(acts) > activity_len:
+                    for act in acts[activity_len:]:
+                        yield _sse({"event": "agent_activity", "payload": act})
+                    activity_len = len(acts)
                 for artifact_key in ("strategy", "creatives", "critique", "refined_creatives",
                                      "keyword_graph", "campaign_calendar", "content_schedule",
                                      "audience_segments", "performance_sim", "final_artifacts"):

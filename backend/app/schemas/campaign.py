@@ -100,12 +100,26 @@ class CampaignResult(BaseModel):
     artifacts: CampaignArtifacts
 
 
+class AgentActivity(BaseModel):
+    """Lightweight progress update emitted while a node is working."""
+
+    id: str
+    phase: str
+    agent: str
+    action: str  # e.g. "fetching_url", "web_search", "llm_call", "tool_call", "generating_image"
+    detail: str  # brand-specific description e.g. "Searching: Napptix competitors India gaming"
+    url: str | None = None  # the URL being fetched/visited
+    tool: str | None = None  # tool name if applicable
+    progress: str | None = None  # e.g. "2/4 images generated"
+
+
 class SSEEnvelope(BaseModel):
     event: Literal[
         "run_started",
         "step_completed",
         "graph_node_finished",
         "artifact_partial",
+        "agent_activity",
         "run_completed",
         "run_failed",
     ]
