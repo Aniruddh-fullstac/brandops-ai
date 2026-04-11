@@ -6,6 +6,9 @@ export default {
       fontFamily: {
         display: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
       },
+      animation: {
+        "spin-slow": "spin 3s linear infinite",
+      },
     },
   },
   plugins: [],
