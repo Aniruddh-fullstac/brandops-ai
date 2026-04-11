@@ -2,25 +2,32 @@ import { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MindWebGraph } from "./MindWebGraph";
 import { GRAPH_PIPELINE } from "../../workflowConfig";
-import type { TraceStep } from "../../types";
+import type { AgentActivity, TraceStep } from "../../types";
 import type { AgentNodeData, AgentStatus } from "./types";
-import { DEPENDENCIES, getStepsForNode } from "./graphHelpers";
+import {
+  DEPENDENCIES,
+  getActiveNodeIdsFromSteps,
+  getNodeIdForPhase,
+  getStepsForNode,
+  mergeStepFindings,
+} from "./graphHelpers";
 import { Maximize2, Minimize2, Network } from "lucide-react";
 
 type Props = {
   graphNodesDone: Set<string>;
   busy: boolean;
   steps: TraceStep[];
+  activities: AgentActivity[];
   onExpand: () => void;
 };
 
-export function MindWebMini({ graphNodesDone, busy, steps, onExpand }: Props) {
+export function MindWebMini({ graphNodesDone, busy, steps, activities, onExpand }: Props) {
   const [expanded, setExpanded] = useState(false);
   const doneCnt = GRAPH_PIPELINE.filter((n) => graphNodesDone.has(n.id)).length;
   const hasCampaign = doneCnt > 0;
 
-  const activePhases = useMemo(
-    () => new Set(steps.filter((s) => !graphNodesDone.has(s.phase)).map((s) => s.phase)),
+  const activeNodeIds = useMemo(
+    () => getActiveNodeIdsFromSteps(steps, graphNodesDone),
     [steps, graphNodesDone]
   );
 
@@ -29,25 +36,32 @@ export function MindWebMini({ graphNodesDone, busy, steps, onExpand }: Props) {
       GRAPH_PIPELINE.map((node) => {
         let status: AgentStatus = "idle";
         if (graphNodesDone.has(node.id)) status = "complete";
-        else if (activePhases.has(node.id) || (busy && doneCnt > 0 && GRAPH_PIPELINE[doneCnt]?.id === node.id)) status = "loading";
+        else if (activeNodeIds.has(node.id) || (busy && doneCnt > 0 && GRAPH_PIPELINE[doneCnt]?.id === node.id)) status = "loading";
 
         const phaseSteps = getStepsForNode(node.id, steps);
         const latest = phaseSteps[phaseSteps.length - 1];
         const allSources = phaseSteps.flatMap((s) => s.sources || []);
         const allQueries = phaseSteps.flatMap((s) => s.web_queries || []);
         const allTools = [...new Set(phaseSteps.flatMap((s) => (s.tool_calls || []).map((t) => t.name)))];
+        const allToolCalls = phaseSteps.flatMap((s) => s.tool_calls || []);
+        const nodeActivities = activities.filter((a) => {
+          const mapped = getNodeIdForPhase(a.phase);
+          return mapped === node.id || a.phase === node.id;
+        });
 
         return {
           id: node.id, name: node.label, sub: node.sub, status, icon: node.icon,
           dependencies: DEPENDENCIES[node.id] || [],
           liveTitle: latest?.title,
-          liveSummary: latest?.summary || latest?.reasoning || undefined,
+          liveSummary: mergeStepFindings(phaseSteps),
           liveQueries: allQueries.length > 0 ? allQueries : undefined,
           liveSources: allSources.length > 0 ? allSources : undefined,
           liveTools: allTools.length > 0 ? allTools : undefined,
+          liveToolCalls: allToolCalls.length > 0 ? allToolCalls : undefined,
+          liveActivities: nodeActivities.length > 0 ? nodeActivities : undefined,
         };
       }),
-    [graphNodesDone, activePhases, busy, doneCnt, steps]
+    [graphNodesDone, activeNodeIds, busy, doneCnt, steps, activities]
   );
 
   if (!hasCampaign) return null;
@@ -72,7 +86,7 @@ export function MindWebMini({ graphNodesDone, busy, steps, onExpand }: Props) {
             <div className="flex gap-0.5">
               {GRAPH_PIPELINE.map((n) => (
                 <div key={n.id} className={`h-1.5 w-1.5 rounded-full transition-colors ${
-                  graphNodesDone.has(n.id) ? "bg-teal-400" : activePhases.has(n.id) ? "bg-indigo-400 animate-pulse" : "bg-slate-200"
+                  graphNodesDone.has(n.id) ? "bg-teal-400" : activeNodeIds.has(n.id) ? "bg-indigo-400 animate-pulse" : "bg-slate-200"
                 }`} />
               ))}
             </div>

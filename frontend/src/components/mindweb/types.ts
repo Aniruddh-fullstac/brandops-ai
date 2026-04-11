@@ -16,6 +16,8 @@ export type AgentNodeData = {
   liveQueries?: string[];
   liveSources?: { url: string; title?: string | null }[];
   liveTools?: string[];
+  /** Full tool invocations (name + outcome) from trace steps */
+  liveToolCalls?: { name: string; result_summary?: string | null }[];
   /** Real-time activity feed from agent_activity events */
   liveActivities?: AgentActivity[];
 };

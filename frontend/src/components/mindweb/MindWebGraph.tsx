@@ -85,7 +85,17 @@ function InfoPanel({ node, onClose }: { node: AgentNodeData; onClose: () => void
   const Icon = node.icon;
   const hasActivities = node.liveActivities && node.liveActivities.length > 0;
   const hasTraceData = node.liveTitle || node.liveSummary;
-  const hasAnyData = hasActivities || hasTraceData || (node.liveQueries && node.liveQueries.length > 0);
+  const hasQueries = node.liveQueries && node.liveQueries.length > 0;
+  const hasTools = node.liveTools && node.liveTools.length > 0;
+  const hasToolCalls = node.liveToolCalls && node.liveToolCalls.length > 0;
+  const hasSources = node.liveSources && node.liveSources.length > 0;
+  const hasAnyData =
+    hasActivities ||
+    hasTraceData ||
+    hasQueries ||
+    hasTools ||
+    hasToolCalls ||
+    hasSources;
 
   return (
     <motion.div
@@ -157,11 +167,58 @@ function InfoPanel({ node, onClose }: { node: AgentNodeData; onClose: () => void
           </div>
         )}
 
-        {/* Findings from trace */}
+        {/* Research queries */}
+        {hasQueries && (
+          <div className="mb-2.5">
+            <p className="text-[9px] font-bold uppercase tracking-widest text-slate-600 mb-1">Research queries</p>
+            <ul className="space-y-1">
+              {node.liveQueries!.map((q, i) => (
+                <li key={i} className="text-[10px] leading-snug text-slate-400 pl-2 border-l border-indigo-500/30">
+                  {q}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Tool names (quick scan) — skip if detailed tool calls below */}
+        {hasTools && !hasToolCalls && (
+          <div className="mb-2.5">
+            <p className="text-[9px] font-bold uppercase tracking-widest text-slate-600 mb-1">Tools used</p>
+            <div className="flex flex-wrap gap-1">
+              {node.liveTools!.map((t) => (
+                <span key={t} className="rounded-md bg-white/10 px-1.5 py-0.5 text-[9px] font-mono text-indigo-200/90">
+                  {t}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Tool calls with outcomes */}
+        {hasToolCalls && (
+          <div className="mb-2.5">
+            <p className="text-[9px] font-bold uppercase tracking-widest text-slate-600 mb-1">Tool calls</p>
+            <div className="space-y-1.5">
+              {node.liveToolCalls!.map((tc, i) => (
+                <div key={`${tc.name}-${i}`} className="rounded-lg border border-white/5 bg-white/5 px-2 py-1.5">
+                  <p className="text-[10px] font-mono text-teal-300/90">{tc.name}</p>
+                  {tc.result_summary && (
+                    <p className="mt-0.5 text-[9px] leading-relaxed text-slate-500">{tc.result_summary}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Reasoning + summaries from trace */}
         {node.liveSummary && (
           <div className="mb-2.5">
-            <p className="text-[9px] font-bold uppercase tracking-widest text-slate-600 mb-0.5">Findings</p>
-            <p className="text-[10px] leading-relaxed text-slate-400 line-clamp-4">{node.liveSummary}</p>
+            <p className="text-[9px] font-bold uppercase tracking-widest text-slate-600 mb-0.5">Reasoning &amp; findings</p>
+            <p className="text-[10px] leading-relaxed text-slate-400 whitespace-pre-wrap max-h-[200px] overflow-y-auto thin-scroll pr-1">
+              {node.liveSummary}
+            </p>
           </div>
         )}
 
@@ -169,8 +226,8 @@ function InfoPanel({ node, onClose }: { node: AgentNodeData; onClose: () => void
         {node.liveSources && node.liveSources.length > 0 && (
           <div className="mb-2.5">
             <p className="text-[9px] font-bold uppercase tracking-widest text-slate-600 mb-1">Sources</p>
-            <div className="space-y-0.5">
-              {node.liveSources.slice(0, 5).map((s, i) => (
+            <div className="space-y-0.5 max-h-[140px] overflow-y-auto thin-scroll pr-1">
+              {node.liveSources.slice(0, 12).map((s, i) => (
                 <a key={i} href={s.url} target="_blank" rel="noreferrer"
                   className="flex items-center gap-1.5 text-[9px] text-indigo-400 hover:text-indigo-300 transition-colors">
                   <ExternalLink size={7} className="flex-shrink-0" />

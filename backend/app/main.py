@@ -460,6 +460,67 @@ def _sse(data: dict[str, Any]) -> str:
     return f"data: {json.dumps(data, default=str)}\n\n"
 
 
+_GRAPH_STREAM_END = object()
+
+
+async def _merge_astream_with_activity_queue(
+    graph: Any,
+    initial: dict[str, Any],
+    activity_queue: asyncio.Queue,
+) -> AsyncIterator[tuple[str, Any]]:
+    """Interleave live `agent_activity` queue events with LangGraph `astream` packets.
+
+    Nodes call `_emit_live` during long runs (e.g. parallel research). The graph often does not
+    yield again until that node finishes, so draining the queue only inside `async for packet`
+    would stall all realtime activity until the node completes. Waiting on both the queue and the
+    next graph event fixes that.
+    """
+    aiter = graph.astream(initial, stream_mode=["updates", "values"]).__aiter__()
+
+    async def _next_graph() -> Any:
+        try:
+            return await aiter.__anext__()
+        except StopAsyncIteration:
+            return _GRAPH_STREAM_END
+
+    pending_graph = asyncio.create_task(_next_graph())
+    try:
+        while True:
+            get_act = asyncio.create_task(activity_queue.get())
+            done, _ = await asyncio.wait(
+                {pending_graph, get_act},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if get_act in done:
+                yield ("activity", get_act.result())
+                continue
+
+            get_act.cancel()
+            try:
+                await get_act
+            except asyncio.CancelledError:
+                pass
+
+            packet = pending_graph.result()
+            if packet is _GRAPH_STREAM_END:
+                break
+            pending_graph = asyncio.create_task(_next_graph())
+            yield ("graph", packet)
+
+        while True:
+            try:
+                yield ("activity", activity_queue.get_nowait())
+            except asyncio.QueueEmpty:
+                break
+    finally:
+        if not pending_graph.done():
+            pending_graph.cancel()
+            try:
+                await pending_graph
+            except asyncio.CancelledError:
+                pass
+
+
 async def stream_campaign(
     req: CampaignRequest,
     graph,
@@ -490,18 +551,26 @@ async def stream_campaign(
     trace_len = 0
     activity_len = 0
     sent_keys: set[str] = set()
+    sent_activity_ids: set[str] = set()
+
+    def _emit_activity_if_new(act: dict[str, Any]) -> str | None:
+        """Avoid duplicate agent_activity SSE when the same step was already sent via the live queue."""
+        aid = act.get("id")
+        if aid:
+            if aid in sent_activity_ids:
+                return None
+            sent_activity_ids.add(aid)
+        return _sse({"event": "agent_activity", "payload": act})
+
     try:
-        async for packet in graph.astream(
-            initial,
-            stream_mode=["updates", "values"],
-        ):
-            # Drain real-time activity queue (pushed by nodes during execution)
-            while not activity_queue.empty():
-                try:
-                    live_act = activity_queue.get_nowait()
-                    yield _sse({"event": "agent_activity", "payload": live_act})
-                except asyncio.QueueEmpty:
-                    break
+        async for kind, data in _merge_astream_with_activity_queue(graph, initial, activity_queue):
+            if kind == "activity":
+                sse = _emit_activity_if_new(data)
+                if sse:
+                    yield sse
+                continue
+
+            packet = data
             if isinstance(packet, tuple) and len(packet) == 2:
                 mode, chunk = packet
             else:
@@ -528,7 +597,9 @@ async def stream_campaign(
                 acts = state.get("activities") or []
                 if len(acts) > activity_len:
                     for act in acts[activity_len:]:
-                        yield _sse({"event": "agent_activity", "payload": act})
+                        sse = _emit_activity_if_new(act)
+                        if sse:
+                            yield sse
                     activity_len = len(acts)
                 for artifact_key in ("strategy", "creatives", "critique", "refined_creatives",
                                      "keyword_graph", "campaign_calendar", "content_schedule",

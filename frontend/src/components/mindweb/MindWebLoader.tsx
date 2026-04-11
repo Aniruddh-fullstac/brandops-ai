@@ -17,7 +17,13 @@ type Props = {
   onMinimize: () => void;
 };
 
-import { DEPENDENCIES, getNodeIdForPhase, getStepsForNode } from "./graphHelpers";
+import {
+  DEPENDENCIES,
+  getActiveNodeIdsFromSteps,
+  getNodeIdForPhase,
+  getStepsForNode,
+  mergeStepFindings,
+} from "./graphHelpers";
 
 /** Build agent nodes — only show agents that are triggered (loading/complete), not idle future ones */
 function buildAgents(
@@ -27,14 +33,14 @@ function buildAgents(
   busy: boolean,
   doneCnt: number
 ): AgentNodeData[] {
-  const activePhases = new Set(steps.filter((s) => !done.has(s.phase)).map((s) => s.phase));
+  const activeNodeIds = getActiveNodeIdsFromSteps(steps, done);
 
   return GRAPH_PIPELINE.map((node) => {
     let status: AgentStatus = "idle";
     if (done.has(node.id)) {
       status = "complete";
     } else if (
-      activePhases.has(node.id) ||
+      activeNodeIds.has(node.id) ||
       (busy && doneCnt > 0 && GRAPH_PIPELINE[doneCnt]?.id === node.id)
     ) {
       status = "loading";
@@ -47,6 +53,7 @@ function buildAgents(
     const allSources = phaseSteps.flatMap((s) => s.sources || []);
     const allQueries = phaseSteps.flatMap((s) => s.web_queries || []);
     const allTools = [...new Set(phaseSteps.flatMap((s) => (s.tool_calls || []).map((t) => t.name)))];
+    const allToolCalls = phaseSteps.flatMap((s) => s.tool_calls || []);
 
     // Match activities to this node using the same phase mapping
     const nodeActivities = activities.filter((a) => {
@@ -62,10 +69,11 @@ function buildAgents(
       icon: node.icon,
       dependencies: DEPENDENCIES[node.id] || [],
       liveTitle: latestStep?.title,
-      liveSummary: latestStep?.summary || latestStep?.reasoning || undefined,
+      liveSummary: mergeStepFindings(phaseSteps),
       liveQueries: allQueries.length > 0 ? allQueries : undefined,
       liveSources: allSources.length > 0 ? allSources : undefined,
       liveTools: allTools.length > 0 ? allTools : undefined,
+      liveToolCalls: allToolCalls.length > 0 ? allToolCalls : undefined,
       liveActivities: nodeActivities.length > 0 ? nodeActivities : undefined,
     };
   });

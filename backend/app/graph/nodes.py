@@ -856,6 +856,15 @@ def _instagram_creative_context(state: CampaignState) -> str:
 
 async def node_creative_suite(state: CampaignState, *, client: AsyncOpenAI, settings: Settings) -> dict[str, Any]:
     r = _req(state)
+    _emit_live(
+        state,
+        _act(
+            phase="creative",
+            agent="creative_suite_orchestrator",
+            action="analyzing",
+            detail=f"Running 4 parallel specialists (SEO, social, video, WhatsApp) for {r.brand_name}",
+        ),
+    )
     base = build_node_context(state) + "\n\nStrategy JSON:\n" + str(state.get("strategy"))[:10_000]
     digest = _research_digest(state)[:8000]
     ig_ctx = _instagram_creative_context(state)
@@ -949,6 +958,16 @@ async def node_creative_suite(state: CampaignState, *, client: AsyncOpenAI, sett
 
 async def node_critic(state: CampaignState, *, client: AsyncOpenAI, settings: Settings) -> dict[str, Any]:
     r = _req(state)
+    _emit_live(
+        state,
+        _act(
+            phase="critic",
+            agent="creative_director_critic",
+            action="analyzing",
+            detail=f"QA scoring creatives vs strategy for {r.brand_name}",
+            tool="gpt-structured",
+        ),
+    )
     critique = await chat_json_object(
         client=client,
         model=settings.openai_model,
@@ -984,6 +1003,16 @@ async def node_refine(state: CampaignState, *, client: AsyncOpenAI, settings: Se
     """Refinement loop: takes critic output, fixes creatives, shows before/after."""
     critique = state.get("critique") or {}
     creatives = state.get("creatives") or {}
+    _emit_live(
+        state,
+        _act(
+            phase="refine",
+            agent="refinement_specialist",
+            action="llm_call",
+            detail="Applying critic directives — revising SEO, social, video, and WhatsApp bundles",
+            tool="gpt-structured",
+        ),
+    )
     refined = await chat_json_object(
         client=client,
         model=settings.openai_model,
@@ -1025,6 +1054,15 @@ def should_refine(state: CampaignState) -> str:
 
 async def node_audience_segments(state: CampaignState, *, client: AsyncOpenAI, settings: Settings) -> dict[str, Any]:
     """LLM-backed audience segmentation: 2-3 segments with tailored messaging."""
+    _emit_live(
+        state,
+        _act(
+            phase="audience",
+            agent="audience_segmentation",
+            action="llm_call",
+            detail="Building 2–3 audience micro-segments with hooks and channel fit",
+        ),
+    )
     segments = await chat_json_object(
         client=client,
         model=settings.openai_model_fast,
@@ -1056,6 +1094,15 @@ async def node_keyword_graph(state: CampaignState, *, client: AsyncOpenAI, setti
     """Deterministic: NetworkX + PageRank keyword graph engine."""
     from app.services.keyword_graph import build_keyword_graph
 
+    _emit_live(
+        state,
+        _act(
+            phase="keyword_graph",
+            agent="keyword_graph_engine",
+            action="analyzing",
+            detail="Computing keyword co-occurrence graph (NetworkX PageRank)",
+        ),
+    )
     seo = (state.get("creatives") or {}).get("seo") or {}
     strat = state.get("strategy") or {}
     kw_list = [str(k.get("keyword", "")) for k in (seo.get("target_keywords") or []) if k.get("keyword")]
@@ -1084,6 +1131,15 @@ async def node_timing(state: CampaignState, *, client: AsyncOpenAI, settings: Se
     """Deterministic: 30-day campaign calendar optimizer."""
     from app.services.timing_optimizer import build_campaign_calendar
 
+    _emit_live(
+        state,
+        _act(
+            phase="timing",
+            agent="campaign_timing_optimizer",
+            action="configuring",
+            detail="Building 30-day channel calendar from strategy timeline",
+        ),
+    )
     strat = state.get("strategy") or {}
     channels = []
     for ch_item in (strat.get("channel_plan") or []):
@@ -1123,6 +1179,15 @@ async def node_timing(state: CampaignState, *, client: AsyncOpenAI, settings: Se
 async def node_content_schedule(state: CampaignState, *, client: AsyncOpenAI, settings: Settings) -> dict[str, Any]:
     """Merge calendar + creatives + localization into a single cross-platform timeline with captions and hashtags."""
     r = _req(state)
+    _emit_live(
+        state,
+        _act(
+            phase="content_schedule",
+            agent="unified_content_scheduler",
+            action="llm_call",
+            detail=f"Merging calendar + creatives into one executable schedule for {r.brand_name}",
+        ),
+    )
     cal = state.get("campaign_calendar") or {}
     creatives = state.get("refined_creatives") or state.get("creatives") or {}
     localized = state.get("localized") or {}
@@ -1176,6 +1241,15 @@ async def node_content_schedule(state: CampaignState, *, client: AsyncOpenAI, se
 
 async def node_performance_sim(state: CampaignState, *, client: AsyncOpenAI, settings: Settings) -> dict[str, Any]:
     """Simulated performance projections per channel."""
+    _emit_live(
+        state,
+        _act(
+            phase="performance",
+            agent="performance_simulator",
+            action="llm_call",
+            detail="Simulating 30-day reach, engagement, and lead projections by channel",
+        ),
+    )
     sim = await chat_json_object(
         client=client,
         model=settings.openai_model_fast,
@@ -1207,6 +1281,15 @@ async def node_performance_sim(state: CampaignState, *, client: AsyncOpenAI, set
 
 async def node_localize(state: CampaignState, *, client: AsyncOpenAI, settings: Settings) -> dict[str, Any]:
     r = _req(state)
+    _emit_live(
+        state,
+        _act(
+            phase="localize",
+            agent="geo_localization_lead",
+            action="llm_call",
+            detail=f"Dual-geo adaptation: {r.geography_primary} ↔ {r.geography_secondary}",
+        ),
+    )
     creatives_to_use = state.get("refined_creatives") or state.get("creatives") or {}
     localized = await chat_json_object(
         client=client,
@@ -1252,6 +1335,15 @@ async def node_visuals(state: CampaignState, *, client: AsyncOpenAI, settings: S
             "image_prompts": [],
             "image_urls": [],
         }
+    _emit_live(
+        state,
+        _act(
+            phase="visual",
+            agent="visual_design",
+            action="analyzing",
+            detail="Drafting DALL·E prompts from strategy + creatives",
+        ),
+    )
     prompts_obj = await chat_json_object(
         client=client,
         model=settings.openai_model_fast,
@@ -1262,6 +1354,16 @@ async def node_visuals(state: CampaignState, *, client: AsyncOpenAI, settings: S
         user="Strategy + social hooks:\n" + str(state.get("strategy"))[:4000] + "\n" + str(state.get("creatives"))[:4000],
     )
     prompts = [str(p) for p in (prompts_obj.get("prompts") or []) if str(p).strip()]
+    _emit_live(
+        state,
+        _act(
+            phase="visual",
+            agent="visual_design",
+            action="generating_image",
+            detail=f"Generating {len(prompts)} key visual(s)…",
+            progress=f"0/{len(prompts)}",
+        ),
+    )
     urls = await generate_campaign_images(client=client, settings=settings, prompts=prompts)
     rid = str(state.get("run_id") or "").strip()
     if urls and rid:
@@ -1329,6 +1431,15 @@ async def node_parallel_schedule_bundle(
 
 async def node_finalize(state: CampaignState, *, client: AsyncOpenAI, settings: Settings) -> dict[str, Any]:
     r = _req(state)
+    _emit_live(
+        state,
+        _act(
+            phase="finalize",
+            agent="delivery_orchestrator",
+            action="llm_call",
+            detail=f"Writing executive summary and assembling client bundle for {r.brand_name}",
+        ),
+    )
     strat = state.get("strategy") or {}
     creatives = state.get("creatives") or {}
     exec_summary = await chat_text(

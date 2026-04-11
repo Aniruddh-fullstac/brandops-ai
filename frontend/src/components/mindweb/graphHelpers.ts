@@ -55,3 +55,25 @@ for (const [nodeId, phases] of Object.entries(NODE_TO_PHASES)) {
 export function getNodeIdForPhase(phase: string): string | undefined {
   return PHASE_TO_NODE[phase] || (Object.keys(NODE_TO_PHASES).includes(phase) ? phase : undefined);
 }
+
+/** Graph node IDs that still have in-flight work (trace arrived but node not finished in the DAG). */
+export function getActiveNodeIdsFromSteps(steps: TraceStep[], graphNodesDone: Set<string>): Set<string> {
+  const ids = new Set<string>();
+  for (const s of steps) {
+    const nid = getNodeIdForPhase(s.phase) ?? s.phase;
+    if (!graphNodesDone.has(nid)) ids.add(nid);
+  }
+  return ids;
+}
+
+/** Merge reasoning + summary from every trace step in this node for the inspector panel. */
+export function mergeStepFindings(phaseSteps: TraceStep[]): string | undefined {
+  const blocks: string[] = [];
+  for (const s of phaseSteps) {
+    const bits: string[] = [];
+    if (s.reasoning?.trim()) bits.push(s.reasoning.trim());
+    if (s.summary?.trim()) bits.push(s.summary.trim());
+    if (bits.length) blocks.push(bits.join("\n\n"));
+  }
+  return blocks.length ? blocks.join("\n\n—\n\n") : undefined;
+}

@@ -408,7 +408,7 @@ export default function NewCampaign() {
           {/* Right sidebar (2/5 width) */}
           <div className="min-w-0 space-y-5 lg:col-span-2">
             {/* Agent network mini map */}
-            <MindWebMini graphNodesDone={graphNodesDone} busy={busy} steps={steps} onExpand={() => setShowMindWeb(true)} />
+            <MindWebMini graphNodesDone={graphNodesDone} busy={busy} steps={steps} activities={activities} onExpand={() => setShowMindWeb(true)} />
 
             {/* Streaming artifacts */}
             {Object.keys(partial).length > 0 && (
