@@ -14,6 +14,7 @@ import {
   QrCode,
   ChevronDown,
   Check,
+  MessageSquare,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { useCampaignStore } from "./CampaignStore";
@@ -21,6 +22,7 @@ import { useState } from "react";
 
 const NAV = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
+  { to: "/ask", icon: MessageSquare, label: "Ask Agents" },
   { to: "/campaign/new", icon: Rocket, label: "New Campaign" },
   { to: "/insights", icon: BarChart3, label: "Market Insights" },
   { to: "/competitors", icon: Swords, label: "Competitors" },

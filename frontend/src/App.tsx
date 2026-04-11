@@ -12,6 +12,7 @@ import CampaignCalendar from "./pages/CampaignCalendar";
 import PerformanceSimulation from "./pages/PerformanceSimulation";
 import Notifications from "./pages/Notifications";
 import AdminDashboard from "./pages/AdminDashboard";
+import AskAgent from "./pages/AskAgent";
 import OfflineCampaigns from "./pages/OfflineCampaigns";
 import OfflineCampaignAnalytics from "./pages/OfflineCampaignAnalytics";
 import PublicOfflineLanding from "./pages/PublicOfflineLanding";
@@ -54,6 +55,7 @@ export default function App() {
               <Route path="notifications" element={<Notifications />} />
               <Route path="offline" element={<OfflineCampaigns />} />
               <Route path="offline/:campaignId/analytics" element={<OfflineCampaignAnalytics />} />
+              <Route path="ask" element={<AskAgent />} />
               <Route path="admin" element={<AdminDashboard />} />
             </Route>
           </Routes>
