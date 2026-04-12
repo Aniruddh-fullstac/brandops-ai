@@ -228,50 +228,56 @@ export default function CompetitorAnalysis() {
   }
 
   return (
-    <div className="mx-auto max-w-[1120px] space-y-5 px-4 py-6 sm:px-6">
-      {/* ── Header ── */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-rose-500 to-orange-500 text-white shadow-lg shadow-rose-200/40">
-              <Swords size={18} />
+    <div className="min-h-screen bg-gradient-to-b from-slate-50/90 to-white pb-16">
+      <div className="border-b border-slate-200/80 bg-white/95 backdrop-blur-md">
+        <div className="mx-auto max-w-[1120px] px-4 py-8 sm:px-6">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+            <div className="flex items-start gap-4">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-rose-500 to-orange-500 text-white shadow-lg shadow-rose-200/40">
+                <Swords size={22} />
+              </div>
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-widest text-rose-600">Competitive intel</p>
+                <h1 className="mt-0.5 font-display text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Competitor analysis</h1>
+                <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-600">
+                  Landscape, differentiation angles, and gaps the creative stack can exploit — with trace-linked sources.
+                </p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-xl font-bold text-slate-900">Competitor Analysis</h1>
-              <p className="text-xs text-slate-500">Landscape, differentiation, and market gaps</p>
-            </div>
+
+            {competitors && competitors.length > 0 && (
+              <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
+                <button
+                  type="button"
+                  onClick={() => { setView("grid"); setSelected(null); }}
+                  className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[11px] font-semibold transition-all ${
+                    view === "grid" ? "bg-slate-900 text-white shadow-sm" : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  <LayoutGrid size={12} />
+                  Cards
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setView("table"); setSelected(null); }}
+                  className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[11px] font-semibold transition-all ${
+                    view === "table" ? "bg-slate-900 text-white shadow-sm" : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  <Table2 size={12} />
+                  Compare
+                </button>
+              </div>
+            )}
           </div>
         </div>
-
-        {/* View toggle */}
-        {competitors && competitors.length > 0 && (
-          <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
-            <button
-              onClick={() => { setView("grid"); setSelected(null); }}
-              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[11px] font-semibold transition-all ${
-                view === "grid" ? "bg-slate-900 text-white shadow-sm" : "text-slate-500 hover:text-slate-700"
-              }`}
-            >
-              <LayoutGrid size={12} />
-              Cards
-            </button>
-            <button
-              onClick={() => { setView("table"); setSelected(null); }}
-              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[11px] font-semibold transition-all ${
-                view === "table" ? "bg-slate-900 text-white shadow-sm" : "text-slate-500 hover:text-slate-700"
-              }`}
-            >
-              <Table2 size={12} />
-              Compare
-            </button>
-          </div>
-        )}
       </div>
 
-      {/* ── Reasoning summary ── */}
+      <div className="mx-auto max-w-[1120px] space-y-6 px-4 py-8 sm:px-6">
       {reasoningSummary && (
-        <div className="anim-fade-up rounded-xl border border-indigo-100 bg-gradient-to-r from-indigo-50/50 to-violet-50/50 px-5 py-4">
-          <p className="text-[13px] leading-relaxed text-slate-700">{reasoningSummary}</p>
+        <div className="anim-fade-up overflow-hidden rounded-2xl border border-indigo-100/90 bg-gradient-to-br from-indigo-50/80 via-white to-violet-50/40 p-6 shadow-md">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-600">Synthesis</p>
+          <p className="mt-3 text-sm leading-relaxed text-slate-800">{reasoningSummary}</p>
         </div>
       )}
 
@@ -376,6 +382,7 @@ export default function CompetitorAnalysis() {
           <SourceFootnotes sources={src} />
         </div>
       )}
+      </div>
     </div>
   );
 }

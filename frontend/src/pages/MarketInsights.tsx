@@ -49,7 +49,7 @@ export default function MarketInsights() {
       <div className="border-b border-slate-200/80 bg-white/95 backdrop-blur-md">
         <div className="mx-auto max-w-6xl px-6 py-10">
           <p className="text-[11px] font-bold uppercase tracking-widest text-violet-600">Market intelligence</p>
-          <h1 className="mt-1 font-display text-3xl font-bold tracking-tight text-slate-900">Strategy &amp; segments</h1>
+          <h1 className="mt-1 font-display text-3xl font-bold tracking-tight text-slate-900">Strategy & segments</h1>
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">
             Positioning, channels, creative hooks, and micro-audiences — laid out for scanning, not scrolling walls of text.
           </p>

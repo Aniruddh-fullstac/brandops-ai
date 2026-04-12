@@ -50,7 +50,7 @@ export function MemoryResolutionPanel({ data }: { data: Record<string, unknown> 
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600 to-fuchsia-600 text-white shadow-lg shadow-violet-200/50">
-              <Sparkles size={22} strokeWidth={1.75} />
+              <Sparkles size={22} />
             </div>
             <div>
               <h2 className="font-display text-lg font-bold text-slate-900">Cross-agent memory</h2>
