@@ -69,6 +69,8 @@ class Settings(BaseSettings):
     http_timeout_s: float = Field(25.0, alias="HTTP_TIMEOUT_S")
     max_brand_page_chars: int = Field(32_000, alias="MAX_BRAND_PAGE_CHARS")
     cors_origins: str = Field("http://localhost:5173", alias="CORS_ORIGINS")
+    # Comma-separated Firebase Auth emails allowed to call /api/admin/* and view the admin UI.
+    admin_emails: str = Field("pranav.narkhede@somaiya.edu", alias="ADMIN_EMAILS")
     # Used in QR payloads and CORS for public landing (scan → open app URL).
     public_app_url: str = Field("http://localhost:5173", alias="PUBLIC_APP_URL")
 
@@ -108,6 +110,10 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def admin_email_set(self) -> set[str]:
+        return {e.strip().lower() for e in self.admin_emails.replace("\n", ",").split(",") if e.strip()}
 
     @property
     def instagrapi_proxy_list(self) -> list[str]:

@@ -3,16 +3,22 @@ import { Globe, MessageSquare, Repeat2, Send, ThumbsUp } from "lucide-react";
 import type { ScheduleRow } from "../../lib/contentSchedule";
 
 function fmtLinkedInTime(iso: string | undefined): string {
-  if (!iso) return "1d • 🌐";
+  if (!iso) return "Not scheduled · 🌐";
   try {
     const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return "1d • 🌐";
-    const now = Date.now();
-    const diff = Math.floor((now - d.getTime()) / 1000 / 60 / 60);
-    if (diff < 24) return `${diff}h • 🌐`;
-    return `${Math.floor(diff / 24)}d • 🌐`;
+    if (Number.isNaN(d.getTime())) return "Not scheduled · 🌐";
+    return (
+      d.toLocaleString(undefined, {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      }) + " · 🌐"
+    );
   } catch {
-    return "1d • 🌐";
+    return "Not scheduled · 🌐";
   }
 }
 
@@ -40,14 +46,16 @@ interface LinkedInPostProps {
   brandHandle?: string;
   index: number;
   followers?: number;
+  campaignImageFallback?: string | null;
 }
 
-export function LinkedInPost({ row, brandName, brandHandle: _handle, index, followers }: LinkedInPostProps) {
+export function LinkedInPost({ row, brandName, brandHandle: _handle, index, followers, campaignImageFallback }: LinkedInPostProps) {
   const [liked, setLiked] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
   const { reactions, comments, reposts } = mockLinkedInStats(index);
-  const images = (row.generated_image_urls || []).filter(Boolean);
+  const rawGen = (row.generated_image_urls || []).filter(Boolean);
+  const images = rawGen.length > 0 ? rawGen : campaignImageFallback ? [campaignImageFallback] : [];
   const tags = Array.isArray(row.hashtags) ? row.hashtags : [];
   const caption = row.caption || row.headline || "";
   const displayCaption =

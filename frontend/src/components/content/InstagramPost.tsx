@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   Bookmark,
+  CalendarClock,
   ChevronLeft,
   ChevronRight,
   Heart,
@@ -11,18 +12,22 @@ import {
 } from "lucide-react";
 import type { ScheduleRow } from "../../lib/contentSchedule";
 
-function fmtDate(iso: string | undefined): string {
-  if (!iso) return "2 HOURS AGO";
+/** Full local date + time for scheduled posts */
+function formatScheduledDateTime(iso: string | undefined): string | null {
+  if (!iso) return null;
   try {
     const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return "2 HOURS AGO";
-    return d.toLocaleDateString(undefined, {
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toLocaleString(undefined, {
+      weekday: "short",
       month: "short",
       day: "numeric",
       year: "numeric",
-    }).toUpperCase();
+      hour: "numeric",
+      minute: "2-digit",
+    });
   } catch {
-    return "2 HOURS AGO";
+    return null;
   }
 }
 
@@ -40,19 +45,23 @@ interface InstagramPostProps {
   brandName: string;
   brandHandle?: string;
   index: number;
+  /** When the row has no `generated_image_urls`, show this campaign asset (same pool as “Campaign visuals”). */
+  campaignImageFallback?: string | null;
 }
 
-export function InstagramPost({ row, brandName, brandHandle, index }: InstagramPostProps) {
+export function InstagramPost({ row, brandName, brandHandle, index, campaignImageFallback }: InstagramPostProps) {
   const [liked, setLiked] = useState(false);
   const [saved, setSaved] = useState(false);
   const [imgIdx, setImgIdx] = useState(0);
 
-  const images = (row.generated_image_urls || []).filter(Boolean);
+  const rawGen = (row.generated_image_urls || []).filter(Boolean);
+  const images =
+    rawGen.length > 0 ? rawGen : campaignImageFallback ? [campaignImageFallback] : [];
   const tags = Array.isArray(row.hashtags) ? row.hashtags : [];
   const handle = (brandHandle || brandName?.toLowerCase().replace(/\s+/g, "") || "brand").replace("@", "");
   const { likes, comments } = mockEngagement(index);
   const displayLikes = liked ? likes + 1 : likes;
-  const when = fmtDate(row.scheduled_at);
+  const scheduledLabel = formatScheduledDateTime(row.scheduled_at);
   const location = row.target_segment ? `${row.target_segment}` : undefined;
 
   const caption = row.caption || row.headline || "";
@@ -74,6 +83,14 @@ export function InstagramPost({ row, brandName, brandHandle, index }: InstagramP
           </div>
           <div>
             <p className="text-[13px] font-semibold leading-tight text-slate-900">{handle}</p>
+            {scheduledLabel ? (
+              <p className="mt-0.5 flex items-center gap-1 text-[10px] font-medium text-slate-600">
+                <CalendarClock size={11} className="shrink-0 text-indigo-500" />
+                <span>{scheduledLabel}</span>
+              </p>
+            ) : (
+              <p className="mt-0.5 text-[10px] text-slate-400">No publish time on this row</p>
+            )}
             {location && (
               <p className="flex items-center gap-0.5 text-[10px] text-slate-500">
                 <MapPin size={9} />
@@ -204,9 +221,8 @@ export function InstagramPost({ row, brandName, brandHandle, index }: InstagramP
         </div>
       )}
 
-      {/* Date + format */}
-      <div className="flex items-center justify-between border-t border-slate-100 px-3.5 py-2">
-        <p className="text-[10px] uppercase tracking-widest text-slate-400">{when}</p>
+      {/* Post format */}
+      <div className="flex items-center justify-end border-t border-slate-100 px-3.5 py-2">
         {row.format && (
           <span className="rounded-md bg-pink-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-pink-700">
             {row.format}

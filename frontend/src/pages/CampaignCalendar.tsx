@@ -8,6 +8,7 @@ import { EmailPreview } from "../components/content/EmailPreview";
 import { VideoConceptCard } from "../components/content/VideoConceptCard";
 import { SourceFootnotes } from "../components/presentation/SourceFootnotes";
 import {
+  campaignVisualForRow,
   normalizePlatform,
   parseContentSchedule,
   platformSectionsFromRows,
@@ -145,10 +146,12 @@ function PlatformPostsForDay({
   rows,
   brandName,
   artifacts,
+  allScheduleRows,
 }: {
   rows: ScheduleRow[];
   brandName: string;
   artifacts: Record<string, unknown>;
+  allScheduleRows: ScheduleRow[];
 }) {
   const sections = useMemo(() => platformSectionsFromRows(rows), [rows]);
 
@@ -177,14 +180,31 @@ function PlatformPostsForDay({
           }`}>
             {pid === "instagram" && pRows.map((row, i) => (
               <div key={row.id || i} className="w-full max-w-sm">
-                <InstagramPost row={row} brandName={brandName} index={i} />
+                <InstagramPost
+                  row={row}
+                  brandName={brandName}
+                  index={i}
+                  campaignImageFallback={campaignVisualForRow(row, i, imageUrls, allScheduleRows)}
+                />
               </div>
             ))}
             {pid === "twitter" && pRows.map((row, i) => (
-              <TwitterPost key={row.id || i} row={row} brandName={brandName} index={i} />
+              <TwitterPost
+                key={row.id || i}
+                row={row}
+                brandName={brandName}
+                index={i}
+                campaignImageFallback={campaignVisualForRow(row, i, imageUrls, allScheduleRows)}
+              />
             ))}
             {pid === "linkedin" && pRows.map((row, i) => (
-              <LinkedInPost key={row.id || i} row={row} brandName={brandName} index={i} />
+              <LinkedInPost
+                key={row.id || i}
+                row={row}
+                brandName={brandName}
+                index={i}
+                campaignImageFallback={campaignVisualForRow(row, i, imageUrls, allScheduleRows)}
+              />
             ))}
             {pid === "whatsapp" && pRows.map((row, i) => (
               <div key={row.id || i} className="w-full max-w-sm">
@@ -251,6 +271,7 @@ function PlatformPostsForDay({
 function DayPanel({
   calDay,
   scheduleRows,
+  allScheduleRows,
   timingReasoning,
   brandName,
   artifacts,
@@ -259,6 +280,8 @@ function DayPanel({
 }: {
   calDay: CalDay;
   scheduleRows: ScheduleRow[];
+  /** Full campaign timeline — used to align campaign images with posts by row id. */
+  allScheduleRows: ScheduleRow[];
   timingReasoning: TimingReasoning | undefined;
   brandName: string;
   artifacts: Record<string, unknown>;
@@ -502,6 +525,7 @@ function DayPanel({
               rows={scheduleRows}
               brandName={brandName}
               artifacts={artifacts}
+              allScheduleRows={allScheduleRows}
             />
           )}
         </div>
@@ -858,6 +882,7 @@ export default function CampaignCalendar() {
             events: [],
           }}
           scheduleRows={selectedRows}
+          allScheduleRows={scheduleRows}
           timingReasoning={timingReasoning}
           brandName={brandName}
           artifacts={artifacts as Record<string, unknown>}

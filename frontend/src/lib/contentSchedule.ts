@@ -416,6 +416,19 @@ export function filterRows(rows: ScheduleRow[], platform: string | "all"): Sched
   return rows.filter((r) => normalizePlatform(r.platform) === normalizePlatform(platform));
 }
 
+/** Pick a campaign `image_urls` entry for a row (matches backend flatten order when row ids align). */
+export function campaignVisualForRow(
+  row: ScheduleRow,
+  localIndex: number,
+  imageUrls: string[],
+  allScheduleRows: ScheduleRow[]
+): string | undefined {
+  if (!imageUrls.length) return undefined;
+  const gi = row.id ? allScheduleRows.findIndex((r) => r.id === row.id) : -1;
+  const idx = gi >= 0 ? gi : localIndex;
+  return imageUrls[idx % imageUrls.length];
+}
+
 /** ISO date (YYYY-MM-DD) or fallback label for grouping. */
 export function dateKeyForRow(row: ScheduleRow): string {
   if (!row.scheduled_at) return "— Undated";

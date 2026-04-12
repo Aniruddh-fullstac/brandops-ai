@@ -93,6 +93,24 @@ def _get_uid(request: Request) -> str | None:
     return None
 
 
+def _token_claims(request: Request) -> dict[str, Any] | None:
+    auth = request.headers.get("authorization", "")
+    if not auth.startswith("Bearer "):
+        return None
+    return fb.verify_token(auth[7:])
+
+
+def _require_admin(request: Request) -> dict[str, Any]:
+    claims = _token_claims(request)
+    if not claims:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    email = (claims.get("email") or "").strip().lower()
+    settings = get_settings()
+    if email not in settings.admin_email_set:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return claims
+
+
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
@@ -435,7 +453,8 @@ async def public_offline_event(slug: str, body: OfflineEventIn, request: Request
 
 # --- Admin ---
 @app.get("/api/admin/runs")
-async def admin_runs():
+async def admin_runs(request: Request):
+    _require_admin(request)
     runs = await fb.list_all_campaigns(limit=100)
     return {"runs": runs}
 

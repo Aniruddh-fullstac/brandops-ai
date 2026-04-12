@@ -18,9 +18,10 @@ import {
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { useCampaignStore } from "./CampaignStore";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { isAdminEmail } from "../lib/admin";
 
-const NAV = [
+const NAV_BASE = [
   { to: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
   { to: "/ask", icon: MessageSquare, label: "Ask Agents" },
   { to: "/profile", icon: UserCircle, label: "Brand profile" },
@@ -91,6 +92,10 @@ function CampaignSwitcher() {
 
 export default function Layout() {
   const { user, logOut } = useAuth();
+  const navItems = useMemo(
+    () => NAV_BASE.filter((n) => n.to !== "/admin" || isAdminEmail(user?.email ?? null)),
+    [user?.email],
+  );
 
   return (
     <div className="flex h-screen min-h-0 overflow-hidden bg-[#f4f6fb]">
@@ -111,7 +116,7 @@ export default function Layout() {
         <CampaignSwitcher />
 
         <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden px-3 py-2 thin-scroll">
-          {NAV.map((n) => (
+          {navItems.map((n) => (
             <NavLink
               key={n.to}
               to={n.to}
@@ -159,7 +164,7 @@ export default function Layout() {
             <span className="font-display text-sm font-bold text-slate-900">KnowYourBrand</span>
           </div>
           <div className="flex gap-2 overflow-x-auto">
-            {NAV.slice(0, 5).map((n) => (
+            {navItems.slice(0, 6).map((n) => (
               <NavLink
                 key={n.to}
                 to={n.to}

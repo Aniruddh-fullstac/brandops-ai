@@ -8,12 +8,12 @@ import { WhatsAppMessage } from "../components/content/WhatsAppMessage";
 import { EmailPreview } from "../components/content/EmailPreview";
 import { VideoConceptCard } from "../components/content/VideoConceptCard";
 import { CritiquePanel } from "../components/presentation/CritiquePanel";
-import { CreativeDraftDiff } from "../components/presentation/CreativeDraftDiff";
 import { KeywordGraphPanel } from "../components/presentation/KeywordGraphPanel";
 import { MemoryResolutionPanel } from "../components/presentation/MemoryResolutionPanel";
 import { SourceFootnotes } from "../components/presentation/SourceFootnotes";
 import { StructuredData } from "../components/presentation/StructuredData";
 import {
+  campaignVisualForRow,
   filterRows,
   normalizePlatform,
   parseContentSchedule,
@@ -33,7 +33,6 @@ import {
   Linkedin,
   Mail,
   MessageCircle,
-  Palette,
   Sparkles,
   TrendingUp,
   Twitter,
@@ -145,6 +144,7 @@ function useBrandContext(artifacts: Record<string, unknown> | undefined | null) 
 function PlatformSection({
   tab,
   rows,
+  allScheduleRows,
   artifacts,
   brandName,
   brandHandle,
@@ -152,6 +152,8 @@ function PlatformSection({
 }: {
   tab: PlatformTab;
   rows: ScheduleRow[];
+  /** Full merged timeline (used to align campaign `image_urls` with the correct post). */
+  allScheduleRows: ScheduleRow[];
   artifacts: Record<string, unknown>;
   brandName: string;
   brandHandle: string;
@@ -179,6 +181,7 @@ function PlatformSection({
                 brandName={brandName}
                 brandHandle={brandHandle}
                 index={i}
+                campaignImageFallback={campaignVisualForRow(row, i, imageUrls, allScheduleRows)}
               />
             ))}
           </div>
@@ -209,7 +212,14 @@ function PlatformSection({
         {rows.length === 0 ? <EmptyState label="No tweets scheduled." /> : (
           <div className="flex flex-col gap-6 max-w-2xl">
             {rows.map((row, i) => (
-              <TwitterPost key={row.id || i} row={row} brandName={brandName} brandHandle={brandHandle} index={i} />
+              <TwitterPost
+                key={row.id || i}
+                row={row}
+                brandName={brandName}
+                brandHandle={brandHandle}
+                index={i}
+                campaignImageFallback={campaignVisualForRow(row, i, imageUrls, allScheduleRows)}
+              />
             ))}
           </div>
         )}
@@ -224,7 +234,14 @@ function PlatformSection({
         {rows.length === 0 ? <EmptyState label="No LinkedIn posts scheduled." /> : (
           <div className="flex flex-col gap-6 max-w-2xl">
             {rows.map((row, i) => (
-              <LinkedInPost key={row.id || i} row={row} brandName={brandName} index={i} followers={igFollowers} />
+              <LinkedInPost
+                key={row.id || i}
+                row={row}
+                brandName={brandName}
+                index={i}
+                followers={igFollowers}
+                campaignImageFallback={campaignVisualForRow(row, i, imageUrls, allScheduleRows)}
+              />
             ))}
           </div>
         )}
@@ -389,20 +406,37 @@ export default function ContentOutputs() {
   const imageUrls = ((artifacts as { image_urls?: string[] }).image_urls || []).filter(Boolean);
   const critique = (artifacts as { creative_critique?: Record<string, unknown> }).creative_critique;
   const critiquePost = (artifacts as { creative_critique_post_refine?: Record<string, unknown> }).creative_critique_post_refine;
-  const hadRefinement = Object.keys(refinedCreatives).length > 0;
   const memoryRes = (artifacts as { memory_resolution?: Record<string, unknown> }).memory_resolution;
   const seoWebsiteOpt = (artifacts as { seo_website_optimization?: Record<string, unknown> }).seo_website_optimization;
 
   const { brandName, handle, igFollowers } = useBrandContext(artifacts as Record<string, unknown>);
 
-  const tabSources = useMemo(() => collectSources(steps, (s) => sourceMatchers.creatives(s) || sourceMatchers.critic(s)), [steps]);
+  const tabSources = useMemo(
+    () =>
+      collectSources(
+        steps,
+        (s) =>
+          sourceMatchers.creatives(s) ||
+          sourceMatchers.criticRecheck(s) ||
+          sourceMatchers.critic(s),
+      ),
+    [steps],
+  );
+  const refinedQaAvailable = Boolean(critiquePost && Object.keys(critiquePost).length > 0);
+  const fallbackQaOnly = Boolean(!refinedQaAvailable && critique && Object.keys(critique).length > 0);
+  const displayCritique = refinedQaAvailable ? critiquePost : critique;
+  const qaSources = useMemo(
+    () =>
+      collectSources(
+        steps,
+        refinedQaAvailable ? sourceMatchers.criticRecheck : sourceMatchers.critic,
+      ),
+    [steps, refinedQaAvailable],
+  );
   const kwGraphSources = useMemo(
     () => collectSources(steps, (s) => sourceMatchers.keywordGraph(s)),
     [steps]
   );
-  const showInitialQa = Boolean(critique && Object.keys(critique).length > 0);
-  const showPostQa = Boolean(critiquePost && Object.keys(critiquePost).length > 0);
-
   // Per-tab row counts for badges
   const tabCounts = useMemo(() => {
     const m: Record<string, number> = {};
@@ -467,15 +501,6 @@ export default function ContentOutputs() {
             <div className="flex flex-wrap gap-2">
               <StatChip icon={<LayoutGrid size={14} className="text-indigo-500" />} label="Total posts" value={rows.length} />
               {imageUrls.length > 0 && <StatChip icon={<Sparkles size={14} className="text-violet-500" />} label="Visuals" value={imageUrls.length} />}
-              {hadRefinement && (
-                <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50/90 px-4 py-2.5 shadow-sm">
-                  <Palette size={14} className="text-amber-700" />
-                  <div>
-                    <p className="text-[10px] font-bold uppercase text-amber-900/80">AI Refined</p>
-                    <p className="text-xs font-bold text-amber-950">Critic loop</p>
-                  </div>
-                </div>
-              )}
               <Link
                 to="/calendar"
                 className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50/80 px-4 py-2.5 text-xs font-semibold text-indigo-800 shadow-sm hover:bg-indigo-100"
@@ -593,6 +618,7 @@ export default function ContentOutputs() {
             <PlatformSection
               tab={activeTabObj}
               rows={activeTabRows}
+              allScheduleRows={rows}
               artifacts={artifacts as Record<string, unknown>}
               brandName={brandName}
               brandHandle={handle}
@@ -688,38 +714,22 @@ export default function ContentOutputs() {
         )}
 
         {/* ── QA panels ─────────────────────────────────────────────────────── */}
-        {(showInitialQa || showPostQa) && (
-          <div className={`mt-12 grid gap-6 ${showInitialQa && showPostQa ? "xl:grid-cols-2" : "grid-cols-1"}`}>
-            {showInitialQa && (
-              <div className="rounded-2xl border border-slate-200/90 bg-white p-6 shadow-md">
-                <h2 className="font-display text-base font-bold text-slate-900">Creative QA — initial draft</h2>
-                <div className="mt-5"><CritiquePanel critique={critique} /></div>
-                <div className="mt-5 border-t border-slate-100 pt-4">
-                  <SourceFootnotes sources={collectSources(steps, (s) => sourceMatchers.critic(s))} />
-                </div>
-              </div>
-            )}
-            {showPostQa && (
-              <div className="rounded-2xl border border-teal-200/60 bg-gradient-to-br from-teal-50/30 to-white p-6 shadow-md">
-                <h2 className="font-display text-base font-bold text-slate-900">Creative QA — after refinement</h2>
-                <div className="mt-5"><CritiquePanel critique={critiquePost} /></div>
-                <div className="mt-5 border-t border-teal-100 pt-4">
-                  <SourceFootnotes sources={collectSources(steps, (s) => sourceMatchers.criticRecheck(s))} />
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ── Draft diff ────────────────────────────────────────────────────── */}
-        {hadRefinement && (
+        {(refinedQaAvailable || fallbackQaOnly) && displayCritique && (
           <div className="mt-12">
-            <CreativeDraftDiff
-              originalCreatives={originalCreatives}
-              refinedCreatives={refinedCreatives}
-              deliveredSeo={deliveredSeo}
-              deliveredSocial={deliveredSocial}
-            />
+            <div className="rounded-2xl border border-teal-200/60 bg-gradient-to-br from-teal-50/30 to-white p-6 shadow-md">
+              <h2 className="font-display text-base font-bold text-slate-900">Creative QA</h2>
+              <p className="mt-1 text-xs text-slate-500">
+                {refinedQaAvailable
+                  ? "Quality review for the delivered creative bundle (post-refinement)."
+                  : "Quality review for the generated creative bundle."}
+              </p>
+              <div className="mt-5">
+                <CritiquePanel critique={displayCritique as Record<string, unknown>} />
+              </div>
+              <div className="mt-5 border-t border-teal-100 pt-4">
+                <SourceFootnotes sources={qaSources} />
+              </div>
+            </div>
           </div>
         )}
 

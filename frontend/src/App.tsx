@@ -18,6 +18,7 @@ import OfflineCampaigns from "./pages/OfflineCampaigns";
 import OfflineCampaignAnalytics from "./pages/OfflineCampaignAnalytics";
 import PublicOfflineLanding from "./pages/PublicOfflineLanding";
 import Landing from "./pages/Landing";
+import { isAdminEmail } from "./lib/admin";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -29,6 +30,20 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
     );
   }
   if (!user) return <Navigate to="/login" replace />;
+  return <>{children}</>;
+}
+
+function RequireAdmin({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-200 border-t-indigo-600" />
+      </div>
+    );
+  }
+  if (!user) return <Navigate to="/login" replace />;
+  if (!isAdminEmail(user.email)) return <Navigate to="/dashboard" replace />;
   return <>{children}</>;
 }
 
@@ -60,7 +75,14 @@ export default function App() {
               <Route path="offline" element={<OfflineCampaigns />} />
               <Route path="offline/:campaignId/analytics" element={<OfflineCampaignAnalytics />} />
               <Route path="ask" element={<AskAgent />} />
-              <Route path="admin" element={<AdminDashboard />} />
+              <Route
+                path="admin"
+                element={
+                  <RequireAdmin>
+                    <AdminDashboard />
+                  </RequireAdmin>
+                }
+              />
             </Route>
           </Routes>
         </CampaignStoreProvider>

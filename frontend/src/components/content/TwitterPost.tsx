@@ -3,17 +3,17 @@ import { BarChart2, Heart, MessageCircle, Repeat2, Upload } from "lucide-react";
 import type { ScheduleRow } from "../../lib/contentSchedule";
 
 function fmtTweetTime(iso: string | undefined): string {
-  if (!iso) return "10:30 AM · Apr 12, 2026";
+  if (!iso) return "Not scheduled";
   try {
     const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso;
+    if (Number.isNaN(d.getTime())) return "Not scheduled";
     return (
       d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) +
       " · " +
-      d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+      d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" })
     );
   } catch {
-    return iso;
+    return "Not scheduled";
   }
 }
 
@@ -33,15 +33,17 @@ interface TwitterPostProps {
   brandName: string;
   brandHandle?: string;
   index: number;
+  campaignImageFallback?: string | null;
 }
 
-export function TwitterPost({ row, brandName, brandHandle, index }: TwitterPostProps) {
+export function TwitterPost({ row, brandName, brandHandle, index, campaignImageFallback }: TwitterPostProps) {
   const [liked, setLiked] = useState(false);
   const [retweeted, setRetweeted] = useState(false);
 
   const handle = (brandHandle || brandName?.toLowerCase().replace(/\s+/g, "") || "brand").replace("@", "");
   const { replies, retweets, likes, views } = mockTweetStats(index);
-  const images = (row.generated_image_urls || []).filter(Boolean);
+  const rawGen = (row.generated_image_urls || []).filter(Boolean);
+  const images = rawGen.length > 0 ? rawGen : campaignImageFallback ? [campaignImageFallback] : [];
   const tags = Array.isArray(row.hashtags) ? row.hashtags : [];
   const caption = row.caption || row.headline || "";
   const when = fmtTweetTime(row.scheduled_at);
