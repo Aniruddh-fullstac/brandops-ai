@@ -52,6 +52,8 @@ class Settings(BaseSettings):
     # Instagram (instagrapi) — use a secondary/burner account
     instagrapi_username: str = Field("", alias="INSTAGRAPI_USERNAME")
     instagrapi_password: str = Field("", alias="INSTAGRAPI_PASSWORD")
+    # Browser cookie `sessionid` (instagram.com) — use when password login fails (FB-linked / IP block).
+    instagrapi_session_id: str = Field("", alias="INSTAGRAPI_SESSION_ID")
     instagrapi_session_file: str = Field(
         "backend/instagrapi_session.json", alias="INSTAGRAPI_SESSION_FILE"
     )

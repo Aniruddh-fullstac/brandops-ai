@@ -13,6 +13,7 @@ Provides three public helpers (all sync; wrap with asyncio.to_thread for async u
       Top posts ranked by engagement with their actual comment text attached.
 
 Session is cached to INSTAGRAPI_SESSION_FILE so re-logins are minimal.
+If password login fails, set INSTAGRAPI_SESSION_ID (browser sessionid cookie) in .env.
 """
 
 from __future__ import annotations
@@ -88,20 +89,50 @@ def _attempt_login(
     username: str,
     password: str,
     session_path: Path,
+    session_id: str | None = None,
 ):
+    """
+    Login order:
+    1. Cached session file + username/password (refresh cookies).
+    2. INSTAGRAPI_SESSION_ID — browser `sessionid` cookie (bypasses many BadPassword blocks).
+    3. Fresh username/password login.
+    """
     def fresh() -> Any:
         return _new_instagrapi_client(proxy)
 
+    sid = (session_id or "").strip()
+
     cl = fresh()
-    if session_path.is_file():
+    if session_path.is_file() and username and password:
         try:
             cl.load_settings(session_path)
             cl.login(username, password)
             logger.info("instagrapi: session loaded from %s", session_path)
             return cl
         except Exception as exc:
-            logger.warning("instagrapi: cached session invalid (%s) — fresh login", exc)
+            logger.warning("instagrapi: cached session invalid (%s) — trying other methods", exc)
             cl = fresh()
+
+    if sid:
+        try:
+            cl = fresh()
+            cl.login_by_sessionid(sid)
+            session_path.parent.mkdir(parents=True, exist_ok=True)
+            cl.dump_settings(session_path)
+            logger.info(
+                "instagrapi: logged in via INSTAGRAPI_SESSION_ID; session saved to %s",
+                session_path,
+            )
+            return cl
+        except Exception as exc:
+            logger.warning("instagrapi: login_by_sessionid failed (%s) — trying password", exc)
+            cl = fresh()
+
+    if not username or not password:
+        raise ValueError(
+            "Set INSTAGRAPI_USERNAME and INSTAGRAPI_PASSWORD in .env, "
+            "or set INSTAGRAPI_SESSION_ID to the `sessionid` cookie from instagram.com (while logged in in the browser)."
+        )
 
     cl.login(username, password)
     session_path.parent.mkdir(parents=True, exist_ok=True)
@@ -133,10 +164,12 @@ def _get_client():
     username = s.instagrapi_username
     password = s.instagrapi_password
     session_path = Path(s.instagrapi_session_file)
+    session_id = (s.instagrapi_session_id or "").strip() or None
 
-    if not username or not password:
+    if not session_id and (not username or not password):
         raise ValueError(
-            "Set INSTAGRAPI_USERNAME and INSTAGRAPI_PASSWORD in .env to enable Instagram lookup."
+            "Set INSTAGRAPI_USERNAME and INSTAGRAPI_PASSWORD in .env, "
+            "or set INSTAGRAPI_SESSION_ID (browser sessionid cookie) to enable Instagram lookup."
         )
 
     proxies = list(s.instagrapi_proxy_list)
@@ -147,7 +180,7 @@ def _get_client():
     last_exc: BaseException | None = None
     for proxy in proxies:
         try:
-            cl = _attempt_login(proxy, username, password, session_path)
+            cl = _attempt_login(proxy, username, password, session_path, session_id=session_id)
             _client = cl
             logger.info("instagrapi: using %s", _redact_proxy_url(proxy))
             return _client
@@ -209,14 +242,15 @@ def get_handle_stats(
 
     try:
         cl = _get_client()
-        user_id = cl.user_id_from_username(handle)
-        info = cl.user_info(user_id)
+        # Private mobile API only — skip public www/GraphQL first (rate limits + log spam).
+        info = cl.user_info_by_username_v1(handle)
+        user_id = str(info.pk)
 
         result["followers"] = info.follower_count
         result["following"] = info.following_count
         result["bio"] = info.biography or ""
 
-        medias = cl.user_medias(user_id, amount=max_posts)
+        medias = cl.user_medias_v1(user_id, amount=max_posts)
 
         posts: list[dict[str, Any]] = []
         total_likes = 0

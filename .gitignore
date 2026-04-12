@@ -28,6 +28,8 @@ Thumbs.db
 
 # Media / runtime data
 backend/data/
+backend/output/
+backend/ig_token.txt
 
 # Logs
 *.log

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import uuid
 from typing import Any
 
@@ -86,6 +87,19 @@ def _emit_live(state: Any, act: dict[str, Any]) -> None:
 
 def _req(state: CampaignState) -> CampaignRequest:
     return CampaignRequest.model_validate(state["request"])
+
+
+_IG_HANDLE_RE = re.compile(r"^[a-z0-9._]{1,30}$")
+
+
+def _normalize_ig_handle(raw: str | None) -> str | None:
+    """Lowercase Instagram username without @; None if invalid."""
+    if not raw:
+        return None
+    h = str(raw).strip().lstrip("@").lower()
+    if not h or not _IG_HANDLE_RE.match(h):
+        return None
+    return h
 
 
 def build_node_context(state: CampaignState) -> str:
@@ -426,6 +440,17 @@ async def _brand_instagram_agent(
             ],
         }
 
+    _emit_live(
+        state,
+        _act(
+            phase="research",
+            agent="brand_instagram_analyst",
+            action="instagram_fetch",
+            detail=f"Fetching posts and comments for @{handle} (instagrapi)",
+            tool="instagrapi",
+        ),
+    )
+
     # Run sync instagrapi calls in a thread
     try:
         from app.services.instagrapi_service import get_trending_posts_with_comments
@@ -577,52 +602,165 @@ async def _competitor_instagram_agent(
     state: CampaignState, client: AsyncOpenAI, settings: Settings
 ) -> dict[str, Any]:
     """
-    Discover competitor Instagram handles via LLM web search,
-    fetch their posts + comments, and surface what works for them.
+    Discover competitor Instagram handles via OpenAI web search, then fetch posts + comments
+    through instagrapi (private API — same stack as test.py / get_handle_stats).
     """
     r = _req(state)
     ctx = build_node_context(state)
+    brand_ig = _normalize_ig_handle(r.instagram_handle)
 
-    # Step 1: find competitor handles with a web-search-backed LLM call
-    handles_resp = await chat_json_object(
-        client=client,
-        model=settings.openai_model_fast,
-        system=(
-            "You are a competitive intelligence researcher. "
-            "Identify the 3 most direct competitors for this brand and find their Instagram handles. "
-            "Return JSON: competitors (array of {name, instagram_handle, reason})."
-        ),
-        user=(
-            ctx
-            + f"\n\nBrand: {r.brand_name}. Industry hint: {r.industry_hint or 'unknown'}. "
-            "Provide ONLY real handles that exist on Instagram (no placeholders)."
-        ),
-        temperature=0.2,
-    )
+    seen: set[str] = set()
+    competitors_meta: list[dict[str, Any]] = []
+    web_queries: list[str] = []
+    research_sources: list[SourceRef] = []
+    research_excerpt = ""
+    web_failed: str | None = None
 
-    competitors_meta = (handles_resp.get("competitors") or [])[:3]
+    def _push_from_json(raw: dict[str, Any]) -> None:
+        for item in (raw.get("competitors") or [])[:8]:
+            h = _normalize_ig_handle(item.get("instagram_handle"))
+            if not h or h in seen:
+                continue
+            if brand_ig and h == brand_ig:
+                continue
+            seen.add(h)
+            competitors_meta.append(
+                {
+                    "name": (item.get("name") or "").strip() or h,
+                    "instagram_handle": h,
+                    "reason": (item.get("reason") or "").strip(),
+                }
+            )
+            if len(competitors_meta) >= 3:
+                break
 
-    # Step 2: fetch each competitor's posts + comments concurrently
+    # Step 1a: web search for real competitor names + Instagram evidence
+    try:
+        _emit_live(
+            state,
+            _act(
+                phase="research",
+                agent="competitor_instagram_analyst",
+                action="web_search",
+                detail=f"Searching the web for competitors to {r.brand_name} and their Instagram handles",
+                tool="web_search",
+            ),
+        )
+        pkt = await run_responses_web_research(
+            client=client,
+            settings=settings,
+            instructions=(
+                "You are a competitive intelligence researcher. Use web search to find the 3 most direct "
+                "competitors to the brand described. For each competitor, locate the official Instagram "
+                "username (handle only). Prefer instagram.com profile URLs, company About pages, or "
+                "verified news/press. Do not invent handles — if a handle cannot be verified from sources, "
+                "say it is unknown. One short sentence per competitor explaining why they compete."
+            ),
+            user=(
+                ctx
+                + f"\n\nBrand: {r.brand_name}. Industry hint: {r.industry_hint or 'unknown'}. "
+                "Focus on overlapping product category and geography."
+            ),
+        )
+        web_queries = list(pkt.web_queries or [])
+        research_sources = [
+            SourceRef(url=s["url"], title=s.get("title")) for s in (pkt.sources or [])[:40]
+        ]
+        research_excerpt = (pkt.text or "")[:1200]
+
+        for s in (pkt.sources or [])[:5]:
+            _emit_live(
+                state,
+                _act(
+                    phase="research",
+                    agent="competitor_instagram_analyst",
+                    action="reading_source",
+                    detail=f"Reading: {s.get('title', s.get('url', 'source'))}",
+                    url=s.get("url"),
+                    tool="web_search",
+                ),
+            )
+
+        handles_resp = await chat_json_object(
+            client=client,
+            model=settings.openai_model_fast,
+            system=(
+                "From the research narrative, extract JSON: "
+                "competitors (array of up to 3: name, instagram_handle, reason). "
+                "instagram_handle must be lowercase without @, or empty string if not verified in the text."
+            ),
+            user="Research output:\n" + (pkt.text or "")[:14_000],
+            temperature=0.1,
+        )
+        _push_from_json(handles_resp)
+    except Exception as exc:  # noqa: BLE001
+        web_failed = str(exc)[:280]
+
+    # Step 1b: if web search failed or returned no verifiable handles, fall back to LLM-only (legacy)
+    if len(competitors_meta) < 1:
+        _emit_live(
+            state,
+            _act(
+                phase="research",
+                agent="competitor_instagram_analyst",
+                action="llm_call",
+                detail="Inferring competitor Instagram handles from brand context (no web hits)",
+                tool="gpt-4o-mini",
+            ),
+        )
+        handles_resp = await chat_json_object(
+            client=client,
+            model=settings.openai_model_fast,
+            system=(
+                "You are a competitive intelligence researcher. "
+                "Identify the 3 most direct competitors for this brand and their Instagram handles. "
+                "Return JSON: competitors (array of {name, instagram_handle, reason}). "
+                "Use only plausible real handles (lowercase, no @)."
+            ),
+            user=(
+                ctx
+                + f"\n\nBrand: {r.brand_name}. Industry hint: {r.industry_hint or 'unknown'}."
+            ),
+            temperature=0.2,
+        )
+        _push_from_json(handles_resp)
+
+    competitors_meta = competitors_meta[:3]
+
+    # Step 2: fetch each competitor's posts + comments (sequential — reduces Instagram rate limits)
     async def _fetch_one(meta: dict[str, Any]) -> dict[str, Any]:
         name = meta.get("name", "")
-        raw_handle = (meta.get("instagram_handle") or "").strip().lstrip("@")
-        if not raw_handle:
+        nh = _normalize_ig_handle(meta.get("instagram_handle"))
+        if not nh:
             return {"name": name, "handle": None, "error": "no handle"}
+        _emit_live(
+            state,
+            _act(
+                phase="research",
+                agent="competitor_instagram_analyst",
+                action="instagram_fetch",
+                detail=f"Fetching posts and comments for @{nh} (instagrapi)",
+                tool="instagrapi",
+            ),
+        )
         try:
             from app.services.instagrapi_service import get_trending_posts_with_comments
+
             raw = await asyncio.to_thread(
                 get_trending_posts_with_comments,
-                raw_handle,
-                15,   # max_posts
-                3,    # top_n for comments
-                30,   # max_comments
-                30,   # threshold
+                nh,
+                15,  # max_posts
+                3,  # top_n for comments
+                30,  # max_comments
+                30,  # engagement threshold
             )
-            return {"name": name, "handle": raw_handle, **raw}
-        except Exception as exc:
-            return {"name": name, "handle": raw_handle, "error": str(exc)}
+            return {"name": name, "handle": nh, **raw}
+        except Exception as exc:  # noqa: BLE001
+            return {"name": name, "handle": nh, "error": str(exc)}
 
-    competitor_raw_list = await asyncio.gather(*[_fetch_one(m) for m in competitors_meta])
+    competitor_raw_list: list[dict[str, Any]] = []
+    for m in competitors_meta:
+        competitor_raw_list.append(await _fetch_one(m))
 
     # Step 3: LLM sentiment + "what works" analysis
     analysis_input = []
@@ -668,6 +806,15 @@ async def _competitor_instagram_agent(
             temperature=0.25,
         )
 
+    reasoning_parts = [
+        f"Resolved {len(competitors_meta)} competitor handle(s); "
+        f"fetched posts/comments for "
+        f"{sum(1 for c in competitor_raw_list if not c.get('error'))} via instagrapi. "
+        "Engagement benchmarks inform creative differentiation."
+    ]
+    if web_failed:
+        reasoning_parts.append(f"Web-search step error (fallback may have been used): {web_failed}")
+
     return {
         "competitor_instagram": {
             "competitors_found": [m.get("name") for m in competitors_meta],
@@ -676,6 +823,7 @@ async def _competitor_instagram_agent(
                 for c in competitor_raw_list
             ],
             "analysis": competitor_analysis,
+            "web_search_queries": web_queries,
         },
         "trace": [
             AgentTraceStep(
@@ -684,15 +832,15 @@ async def _competitor_instagram_agent(
                 phase="research",
                 title="Competitor Instagram benchmarking",
                 summary=competitor_analysis.get("reasoning_summary"),
-                reasoning=(
-                    f"Searched for Instagram handles of {len(competitors_meta)} competitors; "
-                    f"successfully fetched data for {sum(1 for c in competitor_raw_list if not c.get('error'))}. "
-                    "Engagement benchmarks and gap opportunities will inform creative differentiation strategy."
-                ),
+                reasoning=" ".join(reasoning_parts),
+                sources=research_sources[:20],
+                web_queries=web_queries,
+                raw_text_excerpt=research_excerpt or None,
                 structured={
                     "competitors": competitor_analysis.get("competitor_profiles"),
                     "gap_opportunities": competitor_analysis.get("gap_opportunities"),
                     "benchmarks": competitor_analysis.get("industry_engagement_benchmarks"),
+                    "handles_resolved": [m.get("instagram_handle") for m in competitors_meta],
                 },
             ).model_dump()
         ],

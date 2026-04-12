@@ -8,9 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from app.services.instagrapi_service import get_instagrapi_client
-
-logger = logging.getLogger(__name__)
+from app.services.instagrapi_service import _get_client
 
 
 def get_account_stats(handle: str, max_posts: int = 20) -> dict[str, Any]:
@@ -18,10 +16,11 @@ def get_account_stats(handle: str, max_posts: int = 20) -> dict[str, Any]:
     if not handle:
         raise ValueError("handle is required")
 
-    cl = get_instagrapi_client()
-    user_id = cl.user_id_from_username(handle)
-    user = cl.user_info(user_id)
-    medias = cl.user_medias(user_id, amount=max_posts)
+    cl = _get_client()
+    # Private API only — avoids www.instagram.com GraphQL (429 + noisy exception logs).
+    user = cl.user_info_by_username_v1(handle)
+    user_id = str(user.pk)
+    medias = cl.user_medias_v1(user_id, amount=max_posts)
 
     posts = []
     total_likes = 0
@@ -67,7 +66,7 @@ def get_account_stats(handle: str, max_posts: int = 20) -> dict[str, Any]:
 
 def get_top_posts_with_comments(handle: str, max_posts: int = 20, top_n: int = 5, comments_per_post: int = 100) -> dict[str, Any]:
     stats = get_account_stats(handle, max_posts=max_posts)
-    cl = get_instagrapi_client()
+    cl = _get_client()
 
     sorted_posts = sorted(
         stats["posts"],
@@ -123,32 +122,71 @@ def export_comments_for_sentiment(handle: str, max_posts: int = 20, top_n: int =
     return str(out_path)
 
 
+def _print_instagram_login_help(exc: BaseException) -> None:
+    print(f"\nInstagram / instagrapi login failed: {exc}", file=sys.stderr)
+    print(
+        "\nWhat usually fixes BadPassword / blacklist / “use Facebook”:\n"
+        "  1. Set INSTAGRAPI_SESSION_ID in backend/.env to your browser `sessionid` cookie "
+        "(Chrome: DevTools → Application → Cookies → https://www.instagram.com → sessionid). "
+        "Copy while you are logged in; same IP helps.\n"
+        "  2. Optional: INSTAGRAPI_PROXIES with a residential proxy if your IP is flagged.\n"
+        "  3. Remove or replace INSTAGRAPI_SESSION_FILE if it was from another account.\n",
+        file=sys.stderr,
+    )
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    p = argparse.ArgumentParser(description="Instagram instagrapi smoke test (run from backend/: python test.py HANDLE)")
-    p.add_argument("handle", nargs="?", default="instagram", help="Instagram username (no @)")
-    p.add_argument("--max-posts", type=int, default=5, help="Posts to fetch (default 5 for quick test)")
-    p.add_argument("--comments", action="store_true", help="Also fetch comments for top posts (slower)")
-    args = p.parse_args()
+    parser = argparse.ArgumentParser(
+        description="Instagram stats via instagrapi (.env: INSTAGRAPI_*; optional INSTAGRAPI_SESSION_ID). "
+        "Run from the backend folder: python test.py <handle>",
+    )
+    parser.add_argument("handle", nargs="?", default=None, help="Instagram username (no @)")
+    parser.add_argument(
+        "--comments",
+        action="store_true",
+        help="Also load top posts and their comments (slower)",
+    )
+    parser.add_argument(
+        "--export-csv",
+        nargs="?",
+        const="output/instagram_comments.csv",
+        default=None,
+        metavar="PATH",
+        help="Export comments to CSV; if PATH omitted, uses output/instagram_comments.csv",
+    )
+    parser.add_argument("--max-posts", type=int, default=20)
+    parser.add_argument("--top-n", type=int, default=5)
+    args = parser.parse_args()
+
+    handle = (args.handle or "").strip().lstrip("@")
+    if not handle:
+        print("Usage: python test.py <instagram_handle> [--comments] [--export-csv PATH]", file=sys.stderr)
+        sys.exit(2)
 
     try:
+        if args.export_csv is not None:
+            out = export_comments_for_sentiment(
+                handle,
+                max_posts=args.max_posts,
+                top_n=args.top_n,
+                out_csv=args.export_csv,
+            )
+            print(json.dumps({"exported_csv": out}, indent=2))
+            return
+
         if args.comments:
-            out = get_top_posts_with_comments(args.handle, max_posts=args.max_posts, top_n=3, comments_per_post=20)
+            data = get_top_posts_with_comments(handle, max_posts=args.max_posts, top_n=args.top_n)
         else:
-            out = get_account_stats(args.handle, max_posts=args.max_posts)
-    except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
+            data = get_account_stats(handle, max_posts=args.max_posts)
+
+        print(json.dumps(data, indent=2, default=str))
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        sys.exit(2)
+    except Exception as exc:
+        _print_instagram_login_help(exc)
         sys.exit(1)
-
-    # Compact JSON to stdout (truncate post captions in display)
-    if "posts" in out and isinstance(out["posts"], list):
-        slim = {**out, "posts": [{k: v for k, v in post.items() if k != "caption" or len(str(v)) <= 120} for post in out["posts"]]}
-        for post in slim.get("posts", []):
-            if "caption" in post and len(post["caption"]) > 120:
-                post["caption"] = post["caption"][:117] + "..."
-        out = slim
-
-    print(json.dumps(out, indent=2, default=str))
 
 
 if __name__ == "__main__":
