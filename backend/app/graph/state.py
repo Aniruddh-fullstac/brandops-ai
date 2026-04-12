@@ -23,6 +23,8 @@ class CampaignState(TypedDict, total=False):
     reddit_snapshot: dict[str, Any]
     brand_instagram_analysis: dict[str, Any]
     competitor_instagram_analysis: dict[str, Any]
+    youtube_research: dict[str, Any]
+    google_trends_research: dict[str, Any]
 
     strategy: dict[str, Any]
     audience_segments: dict[str, Any]
@@ -47,3 +49,5 @@ class CampaignState(TypedDict, total=False):
     trace: Annotated[list[dict[str, Any]], operator.add]
     errors: Annotated[list[str], operator.add]
     activities: Annotated[list[dict[str, Any]], operator.add]
+    # Per-LLM-call usage {phase, prompt_tokens, completion_tokens, total_tokens} for admin token rollups
+    token_usage_events: Annotated[list[dict[str, Any]], operator.add]

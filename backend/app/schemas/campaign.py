@@ -147,6 +147,14 @@ class CampaignArtifacts(BaseModel):
         default_factory=dict,
         description="Competitor Instagram handles, engagement benchmarks, and comment sentiment.",
     )
+    youtube_research: dict[str, Any] = Field(
+        default_factory=dict,
+        description="YouTube NLP: TF-IDF terms, top formats, timing patterns, engagement leaders.",
+    )
+    google_trends_research: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Google Trends: interest classification, rising queries, trending searches, YoY momentum.",
+    )
 
 
 class CampaignResult(BaseModel):

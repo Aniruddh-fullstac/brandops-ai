@@ -171,15 +171,17 @@ def build_channel_config(
     competitor_ig: dict[str, Any] | None,
     sentiment_signal: dict[str, Any] | None = None,
     channels: list[str] | None = None,
+    youtube_research: dict[str, Any] | None = None,
 ) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
     """
     Build a per-channel config dict (same shape as CHANNEL_DEFAULTS) plus
-    a reasoning bundle explaining what data drove the Instagram settings.
+    a reasoning bundle explaining what data drove the settings.
 
     brand_ig          — output of node_brand_instagram_agent → `instagram_data`
     competitor_ig     — output of _competitor_instagram_agent → `competitor_instagram`
     sentiment_signal  — brand_instagram_analysis.sentiment blob
     channels          — which channels to configure
+    youtube_research  — output of _youtube_agent → `youtube_data` (timing from YT videos)
 
     Returns (channel_cfg, reasoning_bundle).
     """
@@ -232,44 +234,66 @@ def build_channel_config(
 
     if not enough_brand and not enough_comp:
         reasoning_bundle["details"].append(
-            "Not enough timestamped posts to override defaults — keeping category baselines."
+            "Not enough timestamped IG posts to override Instagram defaults — keeping category baselines."
         )
-        return cfg, reasoning_bundle
-
-    # ── Merge scores ──────────────────────────────────────────────────────
-    if enough_brand and enough_comp:
-        merged_days  = _weighted_merge(brand_analysis["day_scores"],  comp_analysis["day_scores"])
-        merged_hours = _weighted_merge(brand_analysis["hour_scores"], comp_analysis["hour_scores"])
-        source_note  = f"Brand ({brand_analysis['posts_used']} posts, 60%) + competitor ({comp_analysis['posts_used']} posts, 40%) blend."
-    elif enough_brand:
-        merged_days  = brand_analysis["day_scores"]
-        merged_hours = brand_analysis["hour_scores"]
-        source_note  = f"Brand only ({brand_analysis['posts_used']} posts) — not enough competitor data."
     else:
-        merged_days  = comp_analysis["day_scores"]
-        merged_hours = comp_analysis["hour_scores"]
-        source_note  = f"Competitor only ({comp_analysis['posts_used']} posts) — no brand post timestamps available."
+        # ── Merge Instagram scores ─────────────────────────────────────────
+        if enough_brand and enough_comp:
+            merged_days  = _weighted_merge(brand_analysis["day_scores"],  comp_analysis["day_scores"])
+            merged_hours = _weighted_merge(brand_analysis["hour_scores"], comp_analysis["hour_scores"])
+            source_note  = f"Brand ({brand_analysis['posts_used']} posts, 60%) + competitor ({comp_analysis['posts_used']} posts, 40%) blend."
+        elif enough_brand:
+            merged_days  = brand_analysis["day_scores"]
+            merged_hours = brand_analysis["hour_scores"]
+            source_note  = f"Brand only ({brand_analysis['posts_used']} posts) — not enough competitor data."
+        else:
+            merged_days  = comp_analysis["day_scores"]
+            merged_hours = comp_analysis["hour_scores"]
+            source_note  = f"Competitor only ({comp_analysis['posts_used']} posts) — no brand post timestamps available."
 
-    best_days  = sorted(merged_days,  key=lambda d: merged_days[d],  reverse=True)[:4]
-    best_days.sort()
-    best_hours = sorted(merged_hours, key=lambda h: merged_hours[h], reverse=True)[:3]
-    best_hours.sort()
+        best_days  = sorted(merged_days,  key=lambda d: merged_days[d],  reverse=True)[:4]
+        best_days.sort()
+        best_hours = sorted(merged_hours, key=lambda h: merged_hours[h], reverse=True)[:3]
+        best_hours.sort()
 
-    day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-    reasoning_bundle["instagram_overridden"] = True
-    reasoning_bundle["instagram_best_days"]  = [day_names[d] for d in best_days]
-    reasoning_bundle["instagram_best_hours"] = [f"{h:02d}:00" for h in best_hours]
-    reasoning_bundle["details"].append(source_note)
-    reasoning_bundle["details"].append(
-        f"Instagram config → days: {[day_names[d] for d in best_days]}, "
-        f"hours: {[f'{h:02d}:00' for h in best_hours]}."
-    )
+        day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        reasoning_bundle["instagram_overridden"] = True
+        reasoning_bundle["instagram_best_days"]  = [day_names[d] for d in best_days]
+        reasoning_bundle["instagram_best_hours"] = [f"{h:02d}:00" for h in best_hours]
+        reasoning_bundle["details"].append(source_note)
+        reasoning_bundle["details"].append(
+            f"Instagram config → days: {[day_names[d] for d in best_days]}, "
+            f"hours: {[f'{h:02d}:00' for h in best_hours]}."
+        )
+        if "instagram" in active:
+            cfg["instagram"] = {
+                **cfg.get("instagram", CHANNEL_DEFAULTS["instagram"]),
+                "best_days":  best_days,
+                "best_hours": best_hours,
+            }
 
-    cfg["instagram"] = {
-        **cfg.get("instagram", CHANNEL_DEFAULTS["instagram"]),
-        "best_days":  best_days,
-        "best_hours": best_hours,
-    }
+    # ── YouTube → video channel ────────────────────────────────────────────
+    if "video" in active and youtube_research and isinstance(youtube_research, dict):
+        yt_timing = youtube_research.get("timing") or {}
+        yt_days   = yt_timing.get("best_days", [])
+        yt_hours  = yt_timing.get("best_hours", [])
+        yt_used   = yt_timing.get("posts_used", 0)
+        if yt_days and yt_hours and yt_used >= _MIN_POSTS_TO_TRUST:
+            reasoning_bundle["video_overridden"]   = True
+            reasoning_bundle["video_posts_used"]   = yt_used
+            day_n = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
+            reasoning_bundle["video_best_days"]  = [day_n[d] for d in yt_days]
+            reasoning_bundle["video_best_hours"] = [f"{h:02d}:00" for h in yt_hours]
+            reasoning_bundle["details"].append(
+                f"Video/YouTube channel data-driven from {yt_used} YT videos "
+                f"(view-count weighted). Days: {[day_n[d] for d in yt_days]}, "
+                f"Hours: {[f'{h:02d}:00' for h in yt_hours]}."
+            )
+            cfg["video"] = {
+                **cfg.get("video", CHANNEL_DEFAULTS["video"]),
+                "best_days":  sorted(yt_days),
+                "best_hours": sorted(yt_hours),
+            }
 
     return cfg, reasoning_bundle
 
@@ -287,6 +311,7 @@ def build_campaign_calendar(
     brand_ig: dict[str, Any] | None = None,
     competitor_ig: dict[str, Any] | None = None,
     sentiment_signal: dict[str, Any] | None = None,
+    youtube_research: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Returns a 30-day calendar:
@@ -304,6 +329,7 @@ def build_campaign_calendar(
         competitor_ig=competitor_ig,
         sentiment_signal=sentiment_signal,
         channels=active_channels,
+        youtube_research=youtube_research,
     )
 
     phase_map = _build_phase_map(phases, start_date, duration_days)

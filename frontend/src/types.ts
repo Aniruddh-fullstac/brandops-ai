@@ -43,6 +43,20 @@ export type StreamEvent =
     }
   | { event: "run_failed"; payload: { error: string } };
 
+/** Persisted LLM token rollup (OpenAI chat + Responses API), split by workflow phase. */
+export type LlmTokenUsage = {
+  total: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
+  by_phase: Record<
+    string,
+    { prompt_tokens: number; completion_tokens: number; total_tokens: number }
+  >;
+  call_count: number;
+};
+
 export type CampaignRecord = {
   id: string;
   run_id: string;
@@ -52,4 +66,5 @@ export type CampaignRecord = {
   trace?: TraceStep[];
   artifacts?: Artifacts;
   created_at?: string;
+  llm_token_usage?: LlmTokenUsage | null;
 };

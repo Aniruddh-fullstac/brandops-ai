@@ -153,11 +153,12 @@ Return JSON with:
 - "reasoning": brief explanation of why you picked these agents"""
 
     try:
-        routing = await chat_json_object(
+        routing, _u_route = await chat_json_object(
             client=client,
             model=settings.openai_model_fast,
             system="You are an agent routing system. Pick the right agents for the user query.",
             user=routing_prompt,
+            phase="chat",
         )
     except Exception as exc:
         yield _sse("chat_failed", {"error": f"Routing failed: {exc}"})
@@ -184,13 +185,14 @@ Return JSON with:
             "status": "Analyzing existing campaign data...",
         })
 
-        answer = await chat_text(
+        answer, _u_kb = await chat_text(
             client=client,
             model=settings.openai_model,
             system=f"""You are a marketing intelligence assistant. Answer the user's question using the campaign
 knowledge base below. Be specific, data-driven, and actionable. Format with markdown.
 {context_summary}""",
             user=query,
+            phase="chat",
         )
 
         yield _sse("agent_result", {
@@ -227,11 +229,12 @@ numbers, and actionable recommendations. Be concise but comprehensive."""
 Research this topic thoroughly. Provide specific findings with evidence and sources."""
 
         try:
-            packet = await run_responses_web_research(
+            packet, _u_wr = await run_responses_web_research(
                 client=client,
                 settings=settings,
                 instructions=instructions,
                 user_input=user_input,
+                phase="chat",
             )
             return {
                 "agent_id": agent_id,
@@ -281,7 +284,7 @@ Research this topic thoroughly. Provide specific findings with evidence and sour
             f"## {r['agent_name']} Findings:\n{r['output']}" for r in agent_outputs
         )
 
-        final_answer = await chat_text(
+        final_answer, _u_syn = await chat_text(
             client=client,
             model=settings.openai_model,
             system=f"""You are a senior marketing strategist synthesizing research from multiple specialist agents.
@@ -295,6 +298,7 @@ Agent findings:
 
 Synthesize these findings into a comprehensive, well-structured answer.
 Include key takeaways and specific action items.""",
+            phase="chat",
         )
 
         # Deduplicate sources
@@ -312,10 +316,11 @@ Include key takeaways and specific action items.""",
         })
     else:
         # No agents selected, try a direct answer
-        answer = await chat_text(
+        answer, _u_direct = await chat_text(
             client=client,
             model=settings.openai_model,
             system="You are a marketing intelligence assistant. Provide helpful, actionable advice.",
             user=query,
+            phase="chat",
         )
         yield _sse("chat_answer", {"answer": answer, "sources": []})

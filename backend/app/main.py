@@ -39,6 +39,7 @@ from app.services.offline_analytics import build_full_analytics
 from app.services.qr_codes import qr_png_bytes
 from app.services.image_store import is_safe_media_filename, is_safe_run_id
 from app.services.chat import route_query
+from app.services.llm import aggregate_token_usage
 
 
 @asynccontextmanager
@@ -590,6 +591,7 @@ async def stream_campaign(
         "trace": [],
         "errors": [],
         "activities": [],
+        "token_usage_events": [],
         "_activity_queue": activity_queue,
     }
     last: dict[str, Any] = initial
@@ -678,10 +680,12 @@ async def stream_campaign(
         result = CampaignResult(request=req, trace=trace, artifacts=artifacts)
         result_json = result.model_dump(mode="json")
 
+        tok_events = last.get("token_usage_events") or []
         await fb.update_campaign(campaign_doc_id, {
             "status": "completed",
             "trace": trace,
             "artifacts": result_json.get("artifacts", {}),
+            "llm_token_usage": aggregate_token_usage(tok_events),
         })
 
         yield _sse(
@@ -696,7 +700,11 @@ async def stream_campaign(
             }
         )
     except Exception as exc:  # noqa: BLE001
-        await fb.update_campaign(campaign_doc_id, {"status": "failed", "error": str(exc)})
+        tok_events = last.get("token_usage_events") or []
+        patch: dict[str, Any] = {"status": "failed", "error": str(exc)}
+        if tok_events:
+            patch["llm_token_usage"] = aggregate_token_usage(tok_events)
+        await fb.update_campaign(campaign_doc_id, patch)
         yield _sse({"event": "run_failed", "payload": {"error": str(exc)}})
 
 
@@ -725,6 +733,7 @@ async def campaigns_run(req: CampaignRequest, request: Request):
         "run_id": run_id,
         "trace": [],
         "errors": [],
+        "token_usage_events": [],
     }
     try:
         final = await graph.ainvoke(initial)

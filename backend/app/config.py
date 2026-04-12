@@ -68,6 +68,9 @@ class Settings(BaseSettings):
     # Used in QR payloads and CORS for public landing (scan → open app URL).
     public_app_url: str = Field("http://localhost:5173", alias="PUBLIC_APP_URL")
 
+    # YouTube Data API v3
+    youtube_api_key: str = Field("", alias="YOUTUBE_API_KEY")
+
     # Instagram (instagrapi) — use a secondary/burner account
     instagrapi_username: str = Field("", alias="INSTAGRAPI_USERNAME")
     instagrapi_password: str = Field("", alias="INSTAGRAPI_PASSWORD")

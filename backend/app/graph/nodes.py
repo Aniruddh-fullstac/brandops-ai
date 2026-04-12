@@ -87,6 +87,21 @@ def _emit_live(state: Any, act: dict[str, Any]) -> None:
             pass
 
 
+def _usage_events(*usage_dicts: dict[str, Any] | None) -> dict[str, Any]:
+    """Collect non-empty LLM usage dicts for LangGraph token_usage_events reducer."""
+    events: list[dict[str, Any]] = []
+    for u in usage_dicts:
+        if not u:
+            continue
+        pt = int(u.get("prompt_tokens") or 0)
+        ct = int(u.get("completion_tokens") or 0)
+        tt = int(u.get("total_tokens") or (pt + ct))
+        if tt <= 0 and pt <= 0 and ct <= 0:
+            continue
+        events.append({**u, "prompt_tokens": pt, "completion_tokens": ct, "total_tokens": tt})
+    return {"token_usage_events": events} if events else {}
+
+
 def _req(state: CampaignState) -> CampaignRequest:
     return CampaignRequest.model_validate(state["request"])
 
@@ -271,8 +286,12 @@ async def _competitor_agent(state: CampaignState, client: AsyncOpenAI, settings:
                            detail=f"Searching web for {r.brand_name} competitors and market positioning",
                            tool="web_search"))
     acts: list[dict[str, Any]] = []
-    pkt = await run_responses_web_research(
-        client=client, settings=settings, instructions=instructions, user_input=user
+    pkt, u_resp = await run_responses_web_research(
+        client=client,
+        settings=settings,
+        instructions=instructions,
+        user_input=user,
+        phase="research",
     )
     # Emit sources found live
     for s in pkt.sources[:5]:
@@ -282,7 +301,7 @@ async def _competitor_agent(state: CampaignState, client: AsyncOpenAI, settings:
         acts.append(a)
     _emit_live(state, _act(phase="research", agent="competitor_intelligence", action="llm_call",
                            detail=f"Structuring competitive landscape for {r.brand_name}", tool="gpt-4o-mini"))
-    structured = await chat_json_object(
+    structured, u_chat = await chat_json_object(
         client=client,
         model=settings.openai_model_fast,
         system=(
@@ -292,6 +311,7 @@ async def _competitor_agent(state: CampaignState, client: AsyncOpenAI, settings:
             "reasoning_summary (string)."
         ),
         user="Research output:\n" + pkt.text[:14_000],
+        phase="research",
     )
     sources = [SourceRef(url=s["url"], title=s.get("title")) for s in pkt.sources[:40]]
     return {
@@ -316,6 +336,7 @@ async def _competitor_agent(state: CampaignState, client: AsyncOpenAI, settings:
                 raw_text_excerpt=pkt.text[:900] + ("…" if len(pkt.text) > 900 else ""),
             ).model_dump()
         ],
+        **_usage_events(u_resp, u_chat),
     }
 
 
@@ -355,8 +376,12 @@ async def _social_agent(state: CampaignState, client: AsyncOpenAI, settings: Set
     )
     _emit_live(state, _act(phase="research", agent="social_media_intelligence", action="web_search",
                            detail=f"Searching social platforms for {r.brand_name} content patterns", tool="web_search"))
-    pkt = await run_responses_web_research(
-        client=client, settings=settings, instructions=instructions, user_input=user
+    pkt, u_resp = await run_responses_web_research(
+        client=client,
+        settings=settings,
+        instructions=instructions,
+        user_input=user,
+        phase="research",
     )
     for s in pkt.sources[:4]:
         a = _act(phase="research", agent="social_media_intelligence", action="reading_source",
@@ -365,7 +390,7 @@ async def _social_agent(state: CampaignState, client: AsyncOpenAI, settings: Set
         acts.append(a)
     _emit_live(state, _act(phase="research", agent="social_media_intelligence", action="llm_call",
                            detail=f"Extracting social engagement patterns for {r.brand_name}", tool="gpt-4o-mini"))
-    structured = await chat_json_object(
+    structured, u_chat = await chat_json_object(
         client=client,
         model=settings.openai_model_fast,
         system=(
@@ -374,6 +399,7 @@ async def _social_agent(state: CampaignState, client: AsyncOpenAI, settings: Set
             "recommended_formats (array of strings), reasoning_summary (string)."
         ),
         user="Social research:\n" + pkt.text[:12_000],
+        phase="research",
     )
     sources = [SourceRef(url=s["url"], title=s.get("title")) for s in pkt.sources[:40]]
     return {
@@ -395,6 +421,7 @@ async def _social_agent(state: CampaignState, client: AsyncOpenAI, settings: Set
                 raw_text_excerpt=pkt.text[:900] + ("…" if len(pkt.text) > 900 else ""),
             ).model_dump()
         ],
+        **_usage_events(u_resp, u_chat),
     }
 
 
@@ -409,8 +436,12 @@ async def _trends_agent(state: CampaignState, client: AsyncOpenAI, settings: Set
     _emit_live(state, _act(phase="research", agent="market_trends", action="web_search",
                            detail=f"Searching for market trends affecting {r.brand_name}", tool="web_search"))
     acts: list[dict[str, Any]] = []
-    pkt = await run_responses_web_research(
-        client=client, settings=settings, instructions=instructions, user_input=user
+    pkt, u_resp = await run_responses_web_research(
+        client=client,
+        settings=settings,
+        instructions=instructions,
+        user_input=user,
+        phase="research",
     )
     for s in pkt.sources[:4]:
         a = _act(phase="research", agent="market_trends", action="reading_source",
@@ -419,7 +450,7 @@ async def _trends_agent(state: CampaignState, client: AsyncOpenAI, settings: Set
         acts.append(a)
     _emit_live(state, _act(phase="research", agent="market_trends", action="llm_call",
                            detail=f"Synthesizing trend impact analysis for {r.brand_name}", tool="gpt-4o-mini"))
-    structured = await chat_json_object(
+    structured, u_chat = await chat_json_object(
         client=client,
         model=settings.openai_model_fast,
         system=(
@@ -427,6 +458,7 @@ async def _trends_agent(state: CampaignState, client: AsyncOpenAI, settings: Set
             "headwinds (array of strings), tailwinds (array of strings), reasoning_summary (string)."
         ),
         user="Trend narrative:\n" + pkt.text[:12_000],
+        phase="research",
     )
     sources = [SourceRef(url=s["url"], title=s.get("title")) for s in pkt.sources[:40]]
     return {
@@ -446,6 +478,7 @@ async def _trends_agent(state: CampaignState, client: AsyncOpenAI, settings: Set
                 raw_text_excerpt=pkt.text[:900] + ("…" if len(pkt.text) > 900 else ""),
             ).model_dump()
         ],
+        **_usage_events(u_resp, u_chat),
     }
 
 
@@ -522,9 +555,10 @@ async def _brand_instagram_agent(
             if txt:
                 all_comments.append(txt)
 
+    usage_ig: list[dict[str, Any]] = []
     sentiment_blob: dict[str, Any] = {}
     if all_comments:
-        sentiment_blob = await chat_json_object(
+        sentiment_blob, u_sent = await chat_json_object(
             client=client,
             model=settings.openai_model_fast,
             system=(
@@ -549,10 +583,12 @@ async def _brand_instagram_agent(
                 + "\n".join(f"- {c}" for c in all_comments[:200])
             ),
             temperature=0.2,
+            phase="research",
         )
+        usage_ig.append(u_sent)
 
     # ── Overall Instagram performance summary ─────────────────────────────
-    post_summary = await chat_json_object(
+    post_summary, u_post = await chat_json_object(
         client=client,
         model=settings.openai_model_fast,
         system=(
@@ -578,7 +614,9 @@ async def _brand_instagram_agent(
             )[:8000]
         ),
         temperature=0.3,
+        phase="research",
     )
+    usage_ig.append(u_post)
 
     analysis = {
         "handle": handle,
@@ -628,6 +666,7 @@ async def _brand_instagram_agent(
                 },
             ).model_dump()
         ],
+        **_usage_events(*usage_ig),
     }
 
 
@@ -648,6 +687,7 @@ async def _competitor_instagram_agent(
     research_sources: list[SourceRef] = []
     research_excerpt = ""
     web_failed: str | None = None
+    usage_ci: list[dict[str, Any]] = []
 
     def _push_from_json(raw: dict[str, Any]) -> None:
         for item in (raw.get("competitors") or [])[:8]:
@@ -679,7 +719,7 @@ async def _competitor_instagram_agent(
                 tool="web_search",
             ),
         )
-        pkt = await run_responses_web_research(
+        pkt, u_pkt = await run_responses_web_research(
             client=client,
             settings=settings,
             instructions=(
@@ -694,7 +734,9 @@ async def _competitor_instagram_agent(
                 + f"\n\nBrand: {r.brand_name}. Industry hint: {r.industry_hint or 'unknown'}. "
                 "Focus on overlapping product category and geography."
             ),
+            phase="research",
         )
+        usage_ci.append(u_pkt)
         web_queries = list(pkt.web_queries or [])
         research_sources = [
             SourceRef(url=s["url"], title=s.get("title")) for s in (pkt.sources or [])[:40]
@@ -714,7 +756,7 @@ async def _competitor_instagram_agent(
                 ),
             )
 
-        handles_resp = await chat_json_object(
+        handles_resp, u_handles = await chat_json_object(
             client=client,
             model=settings.openai_model_fast,
             system=(
@@ -724,7 +766,9 @@ async def _competitor_instagram_agent(
             ),
             user="Research output:\n" + (pkt.text or "")[:14_000],
             temperature=0.1,
+            phase="research",
         )
+        usage_ci.append(u_handles)
         _push_from_json(handles_resp)
     except Exception as exc:  # noqa: BLE001
         web_failed = str(exc)[:280]
@@ -741,7 +785,7 @@ async def _competitor_instagram_agent(
                 tool="gpt-4o-mini",
             ),
         )
-        handles_resp = await chat_json_object(
+        handles_resp, u_fallback = await chat_json_object(
             client=client,
             model=settings.openai_model_fast,
             system=(
@@ -755,7 +799,9 @@ async def _competitor_instagram_agent(
                 + f"\n\nBrand: {r.brand_name}. Industry hint: {r.industry_hint or 'unknown'}."
             ),
             temperature=0.2,
+            phase="research",
         )
+        usage_ci.append(u_fallback)
         _push_from_json(handles_resp)
 
     competitors_meta = competitors_meta[:3]
@@ -821,7 +867,7 @@ async def _competitor_instagram_agent(
 
     competitor_analysis: dict[str, Any] = {}
     if analysis_input:
-        competitor_analysis = await chat_json_object(
+        competitor_analysis, u_cia = await chat_json_object(
             client=client,
             model=settings.openai_model_fast,
             system=(
@@ -837,7 +883,9 @@ async def _competitor_instagram_agent(
             ),
             user="Competitor Instagram data:\n" + json.dumps(analysis_input, default=str)[:12_000],
             temperature=0.25,
+            phase="research",
         )
+        usage_ci.append(u_cia)
 
     reasoning_parts = [
         f"Resolved {len(competitors_meta)} competitor handle(s); "
@@ -877,24 +925,200 @@ async def _competitor_instagram_agent(
                 },
             ).model_dump()
         ],
+        **_usage_events(*usage_ci),
+    }
+
+
+async def _youtube_agent(state: CampaignState, settings: Settings) -> dict[str, Any]:
+    """Fetch + NLP-analyse YouTube videos for this brand (zero-LLM, pure data)."""
+    r = _req(state)
+    api_key = settings.youtube_api_key
+    if not api_key:
+        return {
+            "trace": [AgentTraceStep(
+                id=_tid(), agent="youtube_intelligence", phase="research",
+                title="YouTube research skipped",
+                summary="YOUTUBE_API_KEY not configured.",
+            ).model_dump()],
+            "youtube_data": {},
+        }
+
+    _emit_live(state, _act(
+        phase="research", agent="youtube_intelligence", action="web_search",
+        detail=f"Querying YouTube for '{r.brand_name}' content patterns & trends",
+        tool="youtube_data_api_v3",
+    ))
+
+    try:
+        data = await asyncio.to_thread(
+            __import__("app.services.youtube_service", fromlist=["run_youtube_intelligence"])
+            .run_youtube_intelligence,
+            api_key,
+            r.brand_name,
+            r.industry_hint,
+            r.geography_primary,
+            r.geography_secondary,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "trace": [AgentTraceStep(
+                id=_tid(), agent="youtube_intelligence", phase="research",
+                title="YouTube research failed",
+                summary=str(exc),
+                reasoning="Check YOUTUBE_API_KEY and quota limits.",
+            ).model_dump()],
+            "youtube_data": {"error": str(exc)},
+        }
+
+    _emit_live(state, _act(
+        phase="research", agent="youtube_intelligence", action="analyzing",
+        detail=(
+            f"NLP complete: {data.get('total_videos', 0)} videos · "
+            f"top terms: {', '.join((data.get('tfidf_top_terms') or [])[:5])} · "
+            f"dominant format: {data.get('dominant_format', 'unknown')}"
+        ),
+        tool="youtube_nlp_pipeline",
+    ))
+
+    return {
+        "trace": [AgentTraceStep(
+            id=_tid(),
+            agent="youtube_intelligence",
+            phase="research",
+            title=f"YouTube intelligence — {data.get('total_videos', 0)} videos analysed",
+            summary=data.get("reasoning_summary"),
+            reasoning=(
+                "NLP pipeline: TF-IDF · engagement-weighted n-grams · format detection · "
+                "sentiment scoring · channel bucketing · publish-time analysis · "
+                "keyword co-occurrence — all zero-LLM, deterministic."
+            ),
+            web_queries=data.get("queries") or [],
+            structured={
+                "tfidf_top_terms":   data.get("tfidf_top_terms", [])[:10],
+                "top_bigrams":       data.get("top_bigrams", [])[:5],
+                "format_dist":       data.get("format_distribution"),
+                "dominant_format":   data.get("dominant_format"),
+                "sentiment":         data.get("sentiment_distribution"),
+                "timing_best_days":  [["Mon","Tue","Wed","Thu","Fri","Sat","Sun"][d]
+                                      for d in data.get("timing", {}).get("best_days", [])],
+                "timing_best_hours": [f"{h:02d}:00" for h in data.get("timing", {}).get("best_hours", [])],
+                "top_videos":        data.get("top_videos", [])[:3],
+            },
+        ).model_dump()],
+        "youtube_data": data,
+    }
+
+
+async def _google_trends_agent(state: CampaignState) -> dict[str, Any]:
+    """
+    Pull Google Trends data via PyTrends:
+    interest classification, rising queries, related topics, competitor comparison,
+    today's trending searches, and keyword suggestions.
+    All zero-LLM — purely deterministic signal extraction.
+    """
+    r = _req(state)
+
+    _emit_live(state, _act(
+        phase="research", agent="google_trends_intelligence", action="web_search",
+        detail=f"Fetching Google Trends interest signals for '{r.brand_name}' ({r.geography_primary})",
+        tool="pytrends",
+    ))
+
+    # Gather competitor names from competitor_research if already available
+    comp_research = state.get("competitor_research") or {}
+    comp_structured = comp_research.get("structured") or {}
+    comp_names: list[str] = []
+    for c in (comp_structured.get("competitors") or [])[:4]:
+        cname = c.get("name") or c.get("brand") or ""
+        if cname:
+            comp_names.append(cname)
+
+    try:
+        from app.services.google_trends_service import run_google_trends_intelligence
+        data = await asyncio.to_thread(
+            run_google_trends_intelligence,
+            r.brand_name,
+            r.industry_hint,
+            r.geography_primary,
+            r.geography_secondary,
+            comp_names or None,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "trace": [AgentTraceStep(
+                id=_tid(), agent="google_trends_intelligence", phase="research",
+                title="Google Trends research failed",
+                summary=str(exc),
+                reasoning="Install pytrends: pip install pytrends pandas",
+            ).model_dump()],
+            "google_trends_data": {"error": str(exc)},
+        }
+
+    bd = data.get("brand_analysis") or {}
+    rising_qs = [q.get("query", "") for q in (bd.get("rising_related_queries") or [])[:5]]
+
+    _emit_live(state, _act(
+        phase="research", agent="google_trends_intelligence", action="analyzing",
+        detail=(
+            f"Trends: {bd.get('classification', 'unknown')} "
+            f"(5yr mean={bd.get('mean_interest_5yr', 0)}, YoY={bd.get('yoy_pct_change', 0):+.1f}%). "
+            + (f"Rising: {', '.join(rising_qs)}" if rising_qs else "No rising queries detected.")
+        ),
+        tool="pytrends_nlp",
+    ))
+
+    return {
+        "trace": [AgentTraceStep(
+            id=_tid(),
+            agent="google_trends_intelligence",
+            phase="research",
+            title=f"Google Trends — '{r.brand_name}' is {bd.get('classification', 'analysed')}",
+            summary=data.get("reasoning_summary"),
+            reasoning=(
+                "Multi-timeframe interest scoring (5yr/12m) → YoY momentum → "
+                "automated trend classification (stable/rising/declining/seasonal/cyclical) → "
+                "rising related queries → rising topics → competitor interest comparison → "
+                "real-time trending searches → keyword suggestions. All deterministic via PyTrends."
+            ),
+            web_queries=[f"pytrends:{r.brand_name}", f"pytrends:{r.industry_hint or 'industry'}"],
+            structured={
+                "classification":         bd.get("classification"),
+                "mean_interest_5yr":      bd.get("mean_interest_5yr"),
+                "mean_interest_12m":      bd.get("mean_interest_12m"),
+                "yoy_pct_change":         bd.get("yoy_pct_change"),
+                "peak_months":            bd.get("peak_months"),
+                "rising_related_queries": bd.get("rising_related_queries", [])[:6],
+                "top_related_queries":    bd.get("top_related_queries", [])[:6],
+                "rising_related_topics":  bd.get("rising_related_topics", [])[:5],
+                "competitor_comparison":  data.get("competitor_comparison", []),
+                "trending_today":         (data.get("trending_today") or [])[:10],
+                "keyword_suggestions":    data.get("keyword_suggestions", []),
+            },
+        ).model_dump()],
+        "google_trends_data": data,
     }
 
 
 async def node_parallel_research(
     state: CampaignState, *, client: AsyncOpenAI, settings: Settings
 ) -> dict[str, Any]:
-    c, s, t, b_ig, comp_ig = await asyncio.gather(
+    c, s, t, b_ig, comp_ig, yt, gt = await asyncio.gather(
         _competitor_agent(state, client, settings),
         _social_agent(state, client, settings),
         _trends_agent(state, client, settings),
         _brand_instagram_agent(state, client, settings),
         _competitor_instagram_agent(state, client, settings),
+        _youtube_agent(state, settings),
+        _google_trends_agent(state),
     )
     trace = (
         c["trace"] + s["trace"] + t["trace"]
-        + b_ig["trace"] + comp_ig["trace"]
+        + b_ig["trace"] + comp_ig["trace"] + yt["trace"] + gt["trace"]
     )
-    return {
+    tok_merge: list[dict[str, Any]] = []
+    for part in (c, s, t, b_ig, comp_ig, yt, gt):
+        tok_merge.extend(part.get("token_usage_events") or [])
+    out: dict[str, Any] = {
         "trace": trace,
         "competitor_research": c["packet"],
         "social_research": s["packet"],
@@ -902,7 +1126,12 @@ async def node_parallel_research(
         "reddit_snapshot": s.get("reddit", {}),
         "brand_instagram_analysis": b_ig.get("instagram_data", {}),
         "competitor_instagram_analysis": comp_ig.get("competitor_instagram", {}),
+        "youtube_research": yt.get("youtube_data", {}),
+        "google_trends_research": gt.get("google_trends_data", {}),
     }
+    if tok_merge:
+        out["token_usage_events"] = tok_merge
+    return out
 
 
 def _research_digest(state: CampaignState) -> str:
@@ -931,6 +1160,49 @@ def _research_digest(state: CampaignState) -> str:
         parts.append(
             "## Competitor Instagram Analysis\n"
             + json.dumps(comp_ig.get("analysis", {}), default=str)[:4000]
+        )
+
+    # Google Trends intelligence
+    gt = state.get("google_trends_research") or {}
+    if gt and not gt.get("error"):
+        bd = gt.get("brand_analysis") or {}
+        ind = gt.get("industry_analysis") or {}
+        rising_qs = [q.get("query", "") for q in (bd.get("rising_related_queries") or [])[:8]]
+        rising_ts = [t.get("topic", "") for t in (bd.get("rising_related_topics") or [])[:5]]
+        trending  = (gt.get("trending_today") or [])[:8]
+        parts.append(
+            "## Google Trends Intelligence\n"
+            f"Brand classification: {bd.get('classification', 'unknown')} "
+            f"(5yr mean={bd.get('mean_interest_5yr', 0)}, 12m mean={bd.get('mean_interest_12m', 0)}, "
+            f"YoY={bd.get('yoy_pct_change', 0):+.1f}%)\n"
+            + (f"Peak interest months: {', '.join(bd.get('peak_months') or [])}\n" if bd.get("peak_months") else "")
+            + (f"Rising related queries: {', '.join(rising_qs)}\n" if rising_qs else "")
+            + (f"Rising related topics: {', '.join(rising_ts)}\n" if rising_ts else "")
+            + (f"Keyword suggestions: {', '.join(gt.get('keyword_suggestions') or [])}\n" if gt.get("keyword_suggestions") else "")
+            + (f"Today's trending searches (same geo): {', '.join(trending)}\n" if trending else "")
+            + (f"Industry '{ind.get('keyword', '')}': {ind.get('classification', '')} "
+               f"(YoY={ind.get('yoy_pct_change', 0):+.1f}%)\n" if ind else "")
+            + (f"Competitor comparison: {json.dumps(gt.get('competitor_comparison', []))[:1000]}\n"
+               if gt.get("competitor_comparison") else "")
+        )
+
+    # YouTube NLP intelligence
+    yt = state.get("youtube_research") or {}
+    if yt and not yt.get("error") and yt.get("total_videos", 0) > 0:
+        timing_days  = [["Mon","Tue","Wed","Thu","Fri","Sat","Sun"][d]
+                        for d in (yt.get("timing") or {}).get("best_days", [])]
+        timing_hours = [f"{h:02d}:00" for h in (yt.get("timing") or {}).get("best_hours", [])]
+        parts.append(
+            "## YouTube Intelligence\n"
+            f"Videos analysed: {yt.get('total_videos', 0)}\n"
+            f"Top TF-IDF terms: {', '.join((yt.get('tfidf_top_terms') or [])[:12])}\n"
+            f"Top bigrams: {json.dumps((yt.get('top_bigrams') or [])[:6], default=str)}\n"
+            f"Dominant format: {yt.get('dominant_format', 'unknown')}\n"
+            f"Format distribution: {json.dumps(yt.get('format_distribution', {}))}\n"
+            f"Sentiment: {json.dumps(yt.get('sentiment_distribution', {}))}\n"
+            f"Best publish days: {timing_days}   hours: {timing_hours}\n"
+            f"Top co-occurrence pairs: {json.dumps((yt.get('cooccurrence') or [])[:6], default=str)}\n"
+            f"Summary: {yt.get('reasoning_summary', '')}"
         )
 
     return "\n\n".join(parts)
@@ -972,7 +1244,7 @@ async def node_seo_website_optimizer(
         "(3) quick wins vs deeper initiatives, (4) multi-market/local nuances if relevant."
     )
     try:
-        pkt = await run_responses_web_research(
+        pkt, u_seo_resp = await run_responses_web_research(
             client=client,
             settings=settings,
             instructions=research_instructions,
@@ -983,6 +1255,7 @@ async def node_seo_website_optimizer(
                 + "\n\nInternal research digest (grounding):\n"
                 + digest[:8000]
             ),
+            phase="seo_website",
         )
     except Exception as exc:  # noqa: BLE001
         err = str(exc)[:800]
@@ -1018,7 +1291,7 @@ async def node_seo_website_optimizer(
         "reasoning_summary (string — how web findings map to this brand),\n"
         "risk_notes (array of strings — practices to avoid)."
     )
-    structured = await chat_json_object(
+    structured, u_seo_chat = await chat_json_object(
         client=client,
         model=settings.openai_model,
         system=schema,
@@ -1029,6 +1302,7 @@ async def node_seo_website_optimizer(
             + ctx[:8000]
         ),
         temperature=0.2,
+        phase="seo_website",
     )
     structured["web_research_queries_used"] = list(pkt.web_queries or [])
     n_tech = len(structured.get("technical_seo") or [])
@@ -1064,6 +1338,7 @@ async def node_seo_website_optimizer(
             ),
         ),
         "seo_website_optimization": structured,
+        **_usage_events(u_seo_resp, u_seo_chat),
     }
 
 
@@ -1088,8 +1363,13 @@ async def node_strategy(state: CampaignState, *, client: AsyncOpenAI, settings: 
         )
     _emit_live(state, _act(phase="strategy", agent="campaign_strategy_architect", action="llm_call",
                            detail=f"Building go-to-market strategy for {r.brand_name}", tool=settings.openai_model))
-    structured = await chat_json_object(
-        client=client, model=settings.openai_model, system=system, user=user, temperature=0.35
+    structured, u_strat = await chat_json_object(
+        client=client,
+        model=settings.openai_model,
+        system=system,
+        user=user,
+        temperature=0.35,
+        phase="strategy",
     )
     return {
         **_activities(
@@ -1106,6 +1386,7 @@ async def node_strategy(state: CampaignState, *, client: AsyncOpenAI, settings: 
             structured=structured,
         ),
         "strategy": structured,
+        **_usage_events(u_strat),
     }
 
 
@@ -1116,13 +1397,15 @@ async def _creative_json(
     role: str,
     system_schema: str,
     user_blob: str,
-) -> dict[str, Any]:
+    phase: str = "creative",
+) -> tuple[dict[str, Any], dict[str, Any]]:
     return await chat_json_object(
         client=client,
         model=settings.openai_model,
         system=role + " " + system_schema,
         user=user_blob[:24_000],
         temperature=0.55,
+        phase=phase,
     )
 
 
@@ -1262,7 +1545,11 @@ async def node_creative_suite(state: CampaignState, *, client: AsyncOpenAI, sett
         ),
         user_blob=base + "\nResearch:\n" + digest + seg_blob + mem_blob + ig_instruction,
     )
-    seo, social, video, msg = await asyncio.gather(seo_task, social_task, video_task, msg_task)
+    r_seo, r_so, r_vi, r_ms = await asyncio.gather(seo_task, social_task, video_task, msg_task)
+    seo, u_cseo = r_seo
+    social, u_csoc = r_so
+    video, u_cvid = r_vi
+    msg, u_cmsg = r_ms
     bundle = {"seo": seo, "social": social, "video_concepts": video, "messaging_whatsapp": msg}
 
     b_ig = state.get("brand_instagram_analysis") or {}
@@ -1288,6 +1575,7 @@ async def node_creative_suite(state: CampaignState, *, client: AsyncOpenAI, sett
             structured={"channels": list(bundle.keys())},
         ),
         "creatives": bundle,
+        **_usage_events(u_cseo, u_csoc, u_cvid, u_cmsg),
     }
 
 
@@ -1303,7 +1591,7 @@ async def node_critic(state: CampaignState, *, client: AsyncOpenAI, settings: Se
             tool="gpt-structured",
         ),
     )
-    critique = await chat_json_object(
+    critique, u_crit = await chat_json_object(
         client=client,
         model=settings.openai_model,
         system=(
@@ -1320,6 +1608,7 @@ async def node_critic(state: CampaignState, *, client: AsyncOpenAI, settings: Se
             + str(state.get("creatives"))[:12_000]
         ),
         temperature=0.25,
+        phase="critic",
     )
     return {
         **_trace_step(
@@ -1331,6 +1620,7 @@ async def node_critic(state: CampaignState, *, client: AsyncOpenAI, settings: Se
             structured=critique,
         ),
         "critique": critique,
+        **_usage_events(u_crit),
     }
 
 
@@ -1355,7 +1645,7 @@ async def node_refine(state: CampaignState, *, client: AsyncOpenAI, settings: Se
             tool="gpt-structured",
         ),
     )
-    refined = await chat_json_object(
+    refined, u_ref = await chat_json_object(
         client=client,
         model=settings.openai_model,
         system=(
@@ -1369,6 +1659,7 @@ async def node_refine(state: CampaignState, *, client: AsyncOpenAI, settings: Se
             + "\nBase creatives to revise:\n" + str(base)[:12_000]
         ),
         temperature=0.4,
+        phase="refine",
     )
     return {
         **_trace_step(
@@ -1381,6 +1672,7 @@ async def node_refine(state: CampaignState, *, client: AsyncOpenAI, settings: Se
         ),
         "refined_creatives": refined,
         "refine_round": rr + 1,
+        **_usage_events(u_ref),
     }
 
 
@@ -1400,7 +1692,7 @@ async def node_critic_recheck(state: CampaignState, *, client: AsyncOpenAI, sett
             tool="gpt-structured",
         ),
     )
-    critique2 = await chat_json_object(
+    critique2, u_crec = await chat_json_object(
         client=client,
         model=settings.openai_model,
         system=(
@@ -1417,6 +1709,7 @@ async def node_critic_recheck(state: CampaignState, *, client: AsyncOpenAI, sett
             + str(refined)[:12_000]
         ),
         temperature=0.25,
+        phase="critic_recheck",
     )
     return {
         **_trace_step(
@@ -1428,6 +1721,7 @@ async def node_critic_recheck(state: CampaignState, *, client: AsyncOpenAI, sett
             structured=critique2,
         ),
         "critique_post_refine": critique2,
+        **_usage_events(u_crec),
     }
 
 
@@ -1496,6 +1790,41 @@ def _audience_grounding_evidence(state: CampaignState) -> str:
         if lang:
             parts.append("Language patterns: " + "; ".join(str(x) for x in lang[:6]))
 
+    # Google Trends — rising queries reveal what audiences actively search for
+    gt = state.get("google_trends_research") or {}
+    if isinstance(gt, dict) and not gt.get("error"):
+        bd = gt.get("brand_analysis") or {}
+        rising_qs = [q.get("query", "") for q in (bd.get("rising_related_queries") or [])[:6]]
+        rising_ts = [t.get("topic", "") for t in (bd.get("rising_related_topics") or [])[:5]]
+        trending  = (gt.get("trending_today") or [])[:6]
+        kw_sugg   = (gt.get("keyword_suggestions") or [])[:8]
+        parts.append("\n=== GOOGLE TRENDS AUDIENCE SIGNALS ===")
+        parts.append(f"Brand interest classification: {bd.get('classification', 'unknown')} "
+                     f"(YoY={bd.get('yoy_pct_change', 0):+.1f}%, peak months={bd.get('peak_months')})")
+        if rising_qs:
+            parts.append("Rising searches (real audience intent): " + " · ".join(rising_qs))
+        if rising_ts:
+            parts.append("Rising adjacent topics: " + " · ".join(rising_ts))
+        if trending:
+            parts.append("Today's trending searches (same geo): " + " · ".join(trending))
+        if kw_sugg:
+            parts.append("Google autocomplete suggestions: " + " · ".join(kw_sugg))
+
+    yt = state.get("youtube_research") or {}
+    if isinstance(yt, dict) and yt.get("total_videos", 0) > 0 and not yt.get("error"):
+        tfidf_terms = (yt.get("tfidf_top_terms") or [])[:10]
+        bigrams     = [b.get("ngram", "") for b in (yt.get("top_bigrams") or [])[:6]]
+        sentiment   = yt.get("sentiment_distribution") or {}
+        dom_format  = yt.get("dominant_format") or "unknown"
+        parts.append("\n=== YOUTUBE VIDEO INTELLIGENCE ===")
+        if tfidf_terms:
+            parts.append("Trending terms in video titles: " + ", ".join(tfidf_terms))
+        if bigrams:
+            parts.append("Top title phrases: " + " · ".join(bigrams))
+        if dom_format:
+            parts.append(f"Dominant video format: {dom_format}")
+        parts.append(f"Video title sentiment: {json.dumps(sentiment)}")
+
     blob = "\n".join(parts)
     if len(blob) > max_chars:
         return blob[:max_chars] + "\n…"
@@ -1524,7 +1853,7 @@ async def node_audience_segments(state: CampaignState, *, client: AsyncOpenAI, s
             "\n\n--- Evidence to ground segments (use language and tensions from here when relevant) ---\n"
             + grounding
         )
-    segments = await chat_json_object(
+    segments, u_aud = await chat_json_object(
         client=client,
         model=settings.openai_model_fast,
         system=(
@@ -1537,6 +1866,7 @@ async def node_audience_segments(state: CampaignState, *, client: AsyncOpenAI, s
         ),
         user=user_blob,
         temperature=0.35,
+        phase="audience",
     )
     return {
         **_trace_step(
@@ -1551,6 +1881,7 @@ async def node_audience_segments(state: CampaignState, *, client: AsyncOpenAI, s
             structured=segments,
         ),
         "audience_segments": segments,
+        **_usage_events(u_aud),
     }
 
 
@@ -1572,7 +1903,7 @@ async def node_memory_conflict_resolve(state: CampaignState, *, client: AsyncOpe
             tool="gpt-structured",
         ),
     )
-    resolved = await chat_json_object(
+    resolved, u_mem = await chat_json_object(
         client=client,
         model=settings.openai_model_fast,
         system=(
@@ -1598,6 +1929,7 @@ async def node_memory_conflict_resolve(state: CampaignState, *, client: AsyncOpe
             + str(b_ig)[:4000]
         ),
         temperature=0.2,
+        phase="memory",
     )
     return {
         **_trace_step(
@@ -1609,6 +1941,7 @@ async def node_memory_conflict_resolve(state: CampaignState, *, client: AsyncOpe
             structured=resolved,
         ),
         "memory_resolution": resolved,
+        **_usage_events(u_mem),
     }
 
 
@@ -1673,10 +2006,10 @@ async def node_timing(state: CampaignState, *, client: AsyncOpenAI, settings: Se
     # ── pull brand / competitor Instagram data from state ─────────────────
     brand_ig: dict | None = state.get("brand_instagram_analysis") or None
     comp_ig_raw = state.get("competitor_instagram_analysis") or {}
-
-    # competitor_instagram_analysis has the shape produced by _competitor_instagram_agent:
-    # { competitors_found, raw_data (list of per-competitor dicts with all_posts), analysis }
     comp_ig: dict | None = comp_ig_raw if comp_ig_raw else None
+
+    # ── YouTube timing data ───────────────────────────────────────────────
+    yt_research: dict | None = state.get("youtube_research") or None
 
     # ── sentiment signal from brand IG ────────────────────────────────────
     sentiment_signal: dict | None = None
@@ -1690,6 +2023,7 @@ async def node_timing(state: CampaignState, *, client: AsyncOpenAI, settings: Se
         for c in ((comp_ig or {}).get("raw_data") or [])
         if isinstance(c, dict)
     )
+    yt_videos_n = (yt_research or {}).get("total_videos", 0)
     _emit_live(
         state,
         _act(
@@ -1697,8 +2031,8 @@ async def node_timing(state: CampaignState, *, client: AsyncOpenAI, settings: Se
             agent="campaign_timing_optimizer",
             action="analyzing",
             detail=(
-                f"Scoring posting windows from {brand_posts_n} brand posts + {comp_posts_n} competitor posts "
-                f"(engagement-weighted, log-scale). Falling back to category defaults where needed."
+                f"Scoring windows: {brand_posts_n} IG brand posts + {comp_posts_n} competitor posts "
+                f"+ {yt_videos_n} YouTube videos (engagement-weighted, log-scale)."
             ),
         ),
     )
@@ -1709,6 +2043,7 @@ async def node_timing(state: CampaignState, *, client: AsyncOpenAI, settings: Se
         brand_ig=brand_ig,
         competitor_ig=comp_ig,
         sentiment_signal=sentiment_signal,
+        youtube_research=yt_research,
     )
 
     tr = calendar["summary"].get("timing_reasoning") or {}
@@ -1764,7 +2099,7 @@ async def node_content_schedule(state: CampaignState, *, client: AsyncOpenAI, se
     creatives = state.get("refined_creatives") or state.get("creatives") or {}
     localized = state.get("localized") or {}
     strat = state.get("strategy") or {}
-    out = await chat_json_object(
+    out, u_cs = await chat_json_object(
         client=client,
         model=settings.openai_model,
         system=(
@@ -1806,6 +2141,7 @@ async def node_content_schedule(state: CampaignState, *, client: AsyncOpenAI, se
             + str(strat.get("channel_plan"))[:4000]
         ),
         temperature=0.35,
+        phase="content_schedule",
     )
     timeline = out.get("timeline") or []
     return {
@@ -1818,6 +2154,7 @@ async def node_content_schedule(state: CampaignState, *, client: AsyncOpenAI, se
             structured={"timeline_rows": len(timeline), "platform_keys": list((out.get("platforms") or {}).keys())},
         ),
         "content_schedule": out,
+        **_usage_events(u_cs),
     }
 
 
@@ -1832,7 +2169,7 @@ async def node_performance_sim(state: CampaignState, *, client: AsyncOpenAI, set
             detail="Simulating 30-day reach, engagement, and lead projections by channel",
         ),
     )
-    sim = await chat_json_object(
+    sim, u_perf = await chat_json_object(
         client=client,
         model=settings.openai_model_fast,
         system=(
@@ -1847,6 +2184,7 @@ async def node_performance_sim(state: CampaignState, *, client: AsyncOpenAI, set
             + "\nCalendar summary:\n" + str((state.get("campaign_calendar") or {}).get("summary"))[:2000]
         ),
         temperature=0.3,
+        phase="performance",
     )
     return {
         **_trace_step(
@@ -1858,6 +2196,7 @@ async def node_performance_sim(state: CampaignState, *, client: AsyncOpenAI, set
             structured=sim,
         ),
         "performance_sim": sim,
+        **_usage_events(u_perf),
     }
 
 
@@ -1873,7 +2212,7 @@ async def node_localize(state: CampaignState, *, client: AsyncOpenAI, settings: 
         ),
     )
     creatives_to_use = state.get("refined_creatives") or state.get("creatives") or {}
-    localized = await chat_json_object(
+    localized, u_loc = await chat_json_object(
         client=client,
         model=settings.openai_model,
         system=(
@@ -1891,6 +2230,7 @@ async def node_localize(state: CampaignState, *, client: AsyncOpenAI, settings: 
             + str(state.get("critique_post_refine") or state.get("critique") or {})[:4000]
         ),
         temperature=0.45,
+        phase="localize",
     )
     return {
         **_trace_step(
@@ -1902,6 +2242,7 @@ async def node_localize(state: CampaignState, *, client: AsyncOpenAI, settings: 
             structured=localized,
         ),
         "localized": localized,
+        **_usage_events(u_loc),
     }
 
 
@@ -1926,7 +2267,7 @@ async def node_visuals(state: CampaignState, *, client: AsyncOpenAI, settings: S
             detail="Drafting DALL·E prompts from strategy + creatives",
         ),
     )
-    prompts_obj = await chat_json_object(
+    prompts_obj, u_vis = await chat_json_object(
         client=client,
         model=settings.openai_model_fast,
         system=(
@@ -1937,6 +2278,7 @@ async def node_visuals(state: CampaignState, *, client: AsyncOpenAI, settings: S
         + str(state.get("strategy"))[:4000]
         + "\n"
         + str(state.get("refined_creatives") or state.get("creatives") or {})[:4000],
+        phase="visual",
     )
     prompts = [str(p) for p in (prompts_obj.get("prompts") or []) if str(p).strip()]
     _emit_live(
@@ -1966,26 +2308,32 @@ async def node_visuals(state: CampaignState, *, client: AsyncOpenAI, settings: S
         ),
         "image_prompts": prompts,
         "image_urls": urls,
+        **_usage_events(u_vis),
     }
 
 
 def _merge_partial_returns(*parts: dict[str, Any]) -> dict[str, Any]:
-    """Merge outputs of parallel node calls (trace/errors append; other keys last-wins)."""
+    """Merge outputs of parallel node calls (trace/errors/token_usage append; other keys last-wins)."""
     out: dict[str, Any] = {}
     traces: list[dict[str, Any]] = []
     errors: list[str] = []
+    tok: list[dict[str, Any]] = []
     for p in parts:
         for k, v in p.items():
             if k == "trace":
                 traces.extend(v)
             elif k == "errors":
                 errors.extend(v)
+            elif k == "token_usage_events":
+                tok.extend(v)
             else:
                 out[k] = v
     if traces:
         out["trace"] = traces
     if errors:
         out["errors"] = errors
+    if tok:
+        out["token_usage_events"] = tok
     return out
 
 
@@ -2011,6 +2359,8 @@ def _merge_state_patch(state: CampaignState, patch: dict[str, Any]) -> CampaignS
             out["errors"] = list(out.get("errors") or []) + v
         elif k == "activities" and isinstance(v, list):
             out["activities"] = list(out.get("activities") or []) + v
+        elif k == "token_usage_events" and isinstance(v, list):
+            out["token_usage_events"] = list(out.get("token_usage_events") or []) + v
         else:
             out[k] = v
     return out  # type: ignore[return-value]
@@ -2242,11 +2592,12 @@ async def node_finalize(state: CampaignState, *, client: AsyncOpenAI, settings: 
     )
     strat = state.get("strategy") or {}
     creatives = state.get("creatives") or {}
-    exec_summary = await chat_text(
+    exec_summary, u_fin = await chat_text(
         client=client,
         model=settings.openai_model_fast,
         system="Write a tight 120-word client-ready executive summary. No markdown.",
         user=str(strat.get("executive_summary")) + "\n" + str(creatives.keys()),
+        phase="finalize",
     )
     final_creatives = state.get("refined_creatives") or creatives
     artifacts = CampaignArtifacts(
@@ -2282,6 +2633,8 @@ async def node_finalize(state: CampaignState, *, client: AsyncOpenAI, settings: 
         image_urls=state.get("image_urls") or [],
         brand_instagram_analysis=state.get("brand_instagram_analysis") or {},
         competitor_instagram_analysis=state.get("competitor_instagram_analysis") or {},
+        youtube_research=state.get("youtube_research") or {},
+        google_trends_research=state.get("google_trends_research") or {},
     )
     return {
         **_trace_step(
@@ -2292,4 +2645,5 @@ async def node_finalize(state: CampaignState, *, client: AsyncOpenAI, settings: 
             structured={"artifact_keys": list(artifacts.model_dump().keys())},
         ),
         "final_artifacts": artifacts.model_dump(),
+        **_usage_events(u_fin),
     }

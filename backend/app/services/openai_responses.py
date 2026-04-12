@@ -8,6 +8,27 @@ from openai import AsyncOpenAI
 from app.config import Settings
 
 
+def usage_dict_from_responses(response: Any, *, phase: str) -> dict[str, Any]:
+    """Normalize Responses API usage (input/output tokens) for the same rollup shape as chat completions."""
+    u = getattr(response, "usage", None)
+    if not u:
+        return {"phase": phase, "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    inp = getattr(u, "input_tokens", None)
+    if inp is None:
+        inp = getattr(u, "prompt_tokens", None)
+    out = getattr(u, "output_tokens", None)
+    if out is None:
+        out = getattr(u, "completion_tokens", None)
+    pt = int(inp or 0)
+    ct = int(out or 0)
+    tt = getattr(u, "total_tokens", None)
+    if tt is None:
+        tt = pt + ct
+    else:
+        tt = int(tt)
+    return {"phase": phase, "prompt_tokens": pt, "completion_tokens": ct, "total_tokens": tt}
+
+
 @dataclass
 class WebResearchPacket:
     text: str
@@ -99,9 +120,11 @@ async def run_responses_web_research(
     instructions: str,
     user_input: str,
     model: str | None = None,
-) -> WebResearchPacket:
+    phase: str = "research",
+) -> tuple[WebResearchPacket, dict[str, Any]]:
     """
     Single-shot Responses API call with built-in web search tool.
+    Returns packet and a usage dict (same shape as chat completions, for token rollups).
     """
     m = model or settings.openai_model
     tools = [_tool_spec(settings)]
@@ -125,4 +148,4 @@ async def run_responses_web_research(
             input=user_input,
             tools=[alt],
         )
-    return _extract_from_response(response)
+    return _extract_from_response(response), usage_dict_from_responses(response, phase=phase)
