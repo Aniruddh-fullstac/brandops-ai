@@ -19,7 +19,6 @@ from uuid import uuid4
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response, StreamingResponse
-from fastapi.staticfiles import StaticFiles
 from openai import AsyncOpenAI
 
 from app.config import Settings, get_settings
@@ -796,8 +795,42 @@ async def campaigns_run(req: CampaignRequest, request: Request):
 
 
 _DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+
+
+def _dist_file_if_safe(rel: str) -> Path | None:
+    """Resolve a file under frontend/dist; return None if missing or path escapes dist."""
+    if not rel or rel.startswith("/"):
+        return None
+    parts = rel.replace("\\", "/").split("/")
+    if any(p == ".." for p in parts):
+        return None
+    candidate = _DIST.joinpath(*parts).resolve()
+    try:
+        candidate.relative_to(_DIST.resolve())
+    except ValueError:
+        return None
+    return candidate if candidate.is_file() else None
+
+
 if _DIST.is_dir():
-    app.mount("/", StaticFiles(directory=str(_DIST), html=True), name="ui")
+
+    @app.get("/")
+    async def spa_root() -> FileResponse:
+        index = _DIST / "index.html"
+        if not index.is_file():
+            raise HTTPException(status_code=404, detail="UI not built (run frontend build)")
+        return FileResponse(index)
+
+    @app.get("/{full_path:path}")
+    async def spa_static_or_index(full_path: str) -> FileResponse:
+        """Serve Vite assets from disk; any other path → index.html for React Router."""
+        f = _dist_file_if_safe(full_path)
+        if f is not None:
+            return FileResponse(f)
+        index = _DIST / "index.html"
+        if not index.is_file():
+            raise HTTPException(status_code=404, detail="UI not built (run frontend build)")
+        return FileResponse(index)
 
 
 if __name__ == "__main__":
