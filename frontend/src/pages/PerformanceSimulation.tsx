@@ -8,15 +8,23 @@ import { TrendingUp, AlertTriangle, Lightbulb, BarChart3, MousePointerClick, Use
 type ChannelSim = {
   name: string;
   impressions_estimate: number;
+  estimated_reach_30d?: number;
+  reach_methodology?: string;
   engagement_rate: number;
+  engagement_rate_basis?: string;
   click_through_rate: number;
   estimated_leads: number;
   confidence: string;
+  methodology?: string;
 };
 
 type PerfData = {
   channels?: ChannelSim[];
   overall_projected_reach?: number;
+  overall_projected_impressions?: number;
+  grounding_summary?: string;
+  monthly_trend_notes?: string;
+  past_performance_signals?: Record<string, unknown>;
   key_risks?: string[];
   optimization_suggestions?: string[];
   reasoning_summary?: string;
@@ -51,7 +59,17 @@ export default function PerformanceSimulation() {
     Object.fromEntries(
       Object.entries(sim).filter(
         ([k]) =>
-          !["channels", "overall_projected_reach", "key_risks", "optimization_suggestions", "reasoning_summary"].includes(k)
+          ![
+            "channels",
+            "overall_projected_reach",
+            "overall_projected_impressions",
+            "grounding_summary",
+            "monthly_trend_notes",
+            "past_performance_signals",
+            "key_risks",
+            "optimization_suggestions",
+            "reasoning_summary",
+          ].includes(k)
       )
     );
 
@@ -72,7 +90,8 @@ export default function PerformanceSimulation() {
           <p className="text-[11px] font-bold uppercase tracking-widest text-teal-600">Simulation</p>
           <h1 className="mt-1 font-display text-3xl font-bold tracking-tight text-slate-900">Performance outlook</h1>
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">
-            Model-estimated reach, engagement, and CTR by channel — plus risks, optimizations, and the keyword graph.
+            Reach and impressions are modeled from your calendar cadence, Instagram/competitor baselines, timing signals, and
+            trend research — directional only, not guarantees.
           </p>
         </div>
       </div>
@@ -85,9 +104,22 @@ export default function PerformanceSimulation() {
                 <div className="rounded-2xl border border-teal-200/80 bg-gradient-to-br from-teal-50 to-emerald-50/50 p-5 shadow-md sm:col-span-2 lg:col-span-1">
                   <div className="flex items-center gap-2 text-teal-800">
                     <TrendingUp size={18} />
-                    <span className="text-[10px] font-bold uppercase tracking-wider">Projected reach</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider">Projected reach (30d)</span>
                   </div>
-                  <p className="mt-3 text-3xl font-bold tabular-nums text-teal-950">{sim.overall_projected_reach.toLocaleString()}</p>
+                  <p className="mt-3 text-3xl font-bold tabular-nums text-teal-950">
+                    {Number(sim.overall_projected_reach).toLocaleString()}
+                  </p>
+                </div>
+              )}
+              {sim.overall_projected_impressions != null && (
+                <div className="rounded-2xl border border-cyan-200/80 bg-gradient-to-br from-cyan-50 to-sky-50/40 p-5 shadow-md sm:col-span-2 lg:col-span-1">
+                  <div className="flex items-center gap-2 text-cyan-900">
+                    <BarChart3 size={18} className="text-cyan-600" />
+                    <span className="text-[10px] font-bold uppercase tracking-wider">Impressions (30d)</span>
+                  </div>
+                  <p className="mt-3 text-3xl font-bold tabular-nums text-cyan-950">
+                    {Number(sim.overall_projected_impressions).toLocaleString()}
+                  </p>
                 </div>
               )}
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -117,9 +149,34 @@ export default function PerformanceSimulation() {
               )}
             </div>
 
+            {(sim.grounding_summary || sim.monthly_trend_notes || sim.past_performance_signals) && (
+              <div className="grid gap-4 lg:grid-cols-3">
+                {sim.grounding_summary && (
+                  <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm lg:col-span-2">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Evidence used</p>
+                    <p className="mt-2 text-sm leading-relaxed text-slate-800">{sim.grounding_summary}</p>
+                  </div>
+                )}
+                {sim.monthly_trend_notes && (
+                  <div className="rounded-2xl border border-violet-200/80 bg-violet-50/40 p-5 shadow-sm">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-violet-800">Trends &amp; seasonality</p>
+                    <p className="mt-2 text-sm leading-relaxed text-violet-950">{sim.monthly_trend_notes}</p>
+                  </div>
+                )}
+                {sim.past_performance_signals && Object.keys(sim.past_performance_signals).length > 0 && (
+                  <div className="rounded-2xl border border-slate-200/90 bg-slate-50/80 p-5 shadow-sm lg:col-span-3">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Past-analysis baselines</p>
+                    <div className="mt-3">
+                      <StructuredData value={sim.past_performance_signals} />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div>
               <h2 className="font-display text-lg font-bold text-slate-900">By channel</h2>
-              <p className="text-xs text-slate-500">Impressions and rates are illustrative — use for directional planning.</p>
+              <p className="text-xs text-slate-500">Impressions, estimated reach, and rates are modeled — use for directional planning.</p>
               <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {sim.channels.map((ch) => (
                   <div
@@ -137,6 +194,14 @@ export default function PerformanceSimulation() {
                         <p className="text-[10px] font-bold uppercase text-slate-400">Impressions</p>
                         <p className="mt-1 text-lg font-bold tabular-nums text-slate-900">{ch.impressions_estimate?.toLocaleString()}</p>
                       </div>
+                      {ch.estimated_reach_30d != null && (
+                        <div>
+                          <p className="text-[10px] font-bold uppercase text-slate-400">Est. reach</p>
+                          <p className="mt-1 text-lg font-bold tabular-nums text-teal-800">
+                            {Number(ch.estimated_reach_30d).toLocaleString()}
+                          </p>
+                        </div>
+                      )}
                       <div>
                         <p className="text-[10px] font-bold uppercase text-slate-400">Engagement</p>
                         <p className="mt-1 text-lg font-bold tabular-nums text-slate-900">{ch.engagement_rate}%</p>
@@ -150,6 +215,28 @@ export default function PerformanceSimulation() {
                         <p className="mt-1 text-lg font-bold tabular-nums text-teal-700">{ch.estimated_leads}</p>
                       </div>
                     </div>
+                    {(ch.reach_methodology || ch.engagement_rate_basis || ch.methodology) && (
+                      <div className="border-t border-slate-100 px-5 py-3 text-[11px] leading-relaxed text-slate-600">
+                        {ch.reach_methodology && (
+                          <p>
+                            <span className="font-semibold text-slate-700">Reach: </span>
+                            {ch.reach_methodology}
+                          </p>
+                        )}
+                        {ch.engagement_rate_basis && (
+                          <p className={ch.reach_methodology ? "mt-1.5" : ""}>
+                            <span className="font-semibold text-slate-700">Engagement basis: </span>
+                            {ch.engagement_rate_basis}
+                          </p>
+                        )}
+                        {ch.methodology && (
+                          <p className={ch.reach_methodology || ch.engagement_rate_basis ? "mt-1.5" : ""}>
+                            <span className="font-semibold text-slate-700">Method: </span>
+                            {ch.methodology}
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

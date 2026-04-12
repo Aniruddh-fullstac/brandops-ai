@@ -8,11 +8,23 @@ function issueSeverityClass(sev: string | undefined) {
   return "border-slate-200 bg-slate-50/80";
 }
 
+type QaMetadata = {
+  rubric_confidence?: number;
+  blended_confidence?: number;
+  coverage_canonical_channels?: number;
+  canonical_channels_present?: number;
+  passes_threshold?: boolean;
+  refine_recommended?: boolean;
+  score_stats?: { avg?: number | null; min?: number | null; max?: number | null; channels_scored?: number };
+  thresholds?: { avg_min?: number; per_channel_min?: number };
+};
+
 export function CritiquePanel({ critique }: { critique: Record<string, unknown> }) {
   const scores = critique.scores as Record<string, number> | undefined;
   const issues = critique.issues as { channel?: string; severity?: string; fix?: string }[] | undefined;
   const directives = critique.revision_directives as string[] | undefined;
   const verdict = critique.final_verdict as string | undefined;
+  const qaMeta = critique.qa_metadata as QaMetadata | undefined;
 
   const scoreEntries = scores ? Object.entries(scores) : [];
   const avg =
@@ -21,7 +33,10 @@ export function CritiquePanel({ critique }: { critique: Record<string, unknown> 
       : null;
 
   const remainder = Object.fromEntries(
-    Object.entries(critique).filter(([k]) => !["scores", "issues", "revision_directives", "final_verdict"].includes(k))
+    Object.entries(critique).filter(
+      ([k]) =>
+        !["scores", "issues", "revision_directives", "final_verdict", "qa_metadata", "scores_normalized"].includes(k)
+    )
   );
   const hasRemainder = Object.keys(remainder).length > 0;
 
@@ -32,6 +47,43 @@ export function CritiquePanel({ critique }: { critique: Record<string, unknown> 
           <div className="absolute right-0 top-0 h-24 w-24 translate-x-6 -translate-y-6 rounded-full bg-indigo-200/30 blur-2xl" />
           <p className="text-[10px] font-bold uppercase tracking-wider text-indigo-600">Verdict</p>
           <p className="relative mt-2 text-sm font-medium leading-relaxed text-slate-800">{verdict}</p>
+        </div>
+      )}
+
+      {qaMeta && (qaMeta.blended_confidence != null || qaMeta.rubric_confidence != null) && (
+        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">QA confidence (rubric × scores)</p>
+          <div className="mt-2 flex flex-wrap items-end gap-6">
+            <div>
+              <p className="text-2xl font-bold tabular-nums text-slate-900">{qaMeta.blended_confidence ?? "—"}</p>
+              <p className="text-[11px] text-slate-500">Blended (0–100)</p>
+            </div>
+            <div>
+              <p className="text-lg font-semibold tabular-nums text-slate-700">{qaMeta.rubric_confidence ?? "—"}</p>
+              <p className="text-[11px] text-slate-500">Rubric coverage</p>
+            </div>
+            <div className="text-[11px] text-slate-600">
+              <p>
+                Canonical channels scored:{" "}
+                <span className="font-semibold text-slate-800">
+                  {qaMeta.canonical_channels_present ?? "—"} / 4
+                </span>
+              </p>
+              {qaMeta.passes_threshold != null && (
+                <p className="mt-1">
+                  Passes thresholds:{" "}
+                  <span className={qaMeta.passes_threshold ? "font-semibold text-teal-700" : "font-semibold text-amber-700"}>
+                    {qaMeta.passes_threshold ? "Yes" : "No"}
+                  </span>
+                  {qaMeta.refine_recommended ? " · Refine recommended" : ""}
+                </p>
+              )}
+            </div>
+          </div>
+          <p className="mt-2 text-[10px] leading-relaxed text-slate-400">
+            Blended combines how completely the critic filled the four channel scores (rubric) with the average score
+            outcome. It does not guarantee factual correctness — use it as a governance signal.
+          </p>
         </div>
       )}
 

@@ -115,6 +115,116 @@ def _effective_geographies(r: CampaignRequest) -> list[str]:
 
 _IG_HANDLE_RE = re.compile(r"^[a-z0-9._]{1,30}$")
 
+# Creative bundle keys — critic scores and refine output must align with these.
+_CREATIVE_BUNDLE_KEYS = ("seo", "social", "video_concepts", "messaging_whatsapp")
+
+
+def _score_value_as_float(v: Any) -> float | None:
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    if isinstance(v, str):
+        s = v.strip()
+        if not s:
+            return None
+        try:
+            return float(s)
+        except ValueError:
+            return None
+    return None
+
+
+def _coerced_score_entries(scores: Any) -> list[tuple[str, float]]:
+    if not isinstance(scores, dict):
+        return []
+    out: list[tuple[str, float]] = []
+    for k, v in scores.items():
+        f = _score_value_as_float(v)
+        if f is not None:
+            out.append((str(k), max(0.0, min(100.0, f))))
+    return out
+
+
+def _needs_refine_scores(vals: list[float], settings: Settings) -> bool:
+    if not vals:
+        return False
+    avg = sum(vals) / len(vals)
+    if avg < settings.critic_score_threshold_avg:
+        return True
+    return any(v < settings.critic_score_threshold_min for v in vals)
+
+
+def _normalize_refined_creatives(refined: dict[str, Any], base: dict[str, Any]) -> dict[str, Any]:
+    """Ensure each channel key exists after refine — LLMs sometimes drop keys or nest extras only."""
+    out = dict(refined)
+    for k in _CREATIVE_BUNDLE_KEYS:
+        cur = out.get(k)
+        empty = cur is None or cur == "" or (isinstance(cur, dict) and not cur)
+        if empty and k in base and base.get(k) is not None:
+            out[k] = copy.deepcopy(base[k])
+    return out
+
+
+def _bundle_has_any_channel(d: dict[str, Any]) -> bool:
+    return any(bool(d.get(k)) for k in _CREATIVE_BUNDLE_KEYS)
+
+
+def _qa_metadata_for_critique(critique: dict[str, Any], settings: Settings) -> dict[str, Any]:
+    """Deterministic QA metadata + confidence (rubric completeness × outcome). Not LLM self-report."""
+    entries = _coerced_score_entries(critique.get("scores"))
+    vals = [v for _, v in entries]
+    canonical = _CREATIVE_BUNDLE_KEYS
+    scored_keys = {k for k, _ in entries}
+    n_canon = sum(1 for k in canonical if k in scored_keys)
+    coverage = n_canon / len(canonical) if canonical else 0.0
+    avg = sum(vals) / len(vals) if vals else None
+    min_v = min(vals) if vals else None
+    max_v = max(vals) if vals else None
+    rubric_confidence = round(100 * coverage)
+    outcome_component = round(avg) if avg is not None else 0
+    blended = int(round(0.45 * rubric_confidence + 0.55 * outcome_component)) if vals else 0
+    blended = max(0, min(100, blended))
+    refine_triggers = _needs_refine_scores(vals, settings) if vals else False
+    passes = not refine_triggers if vals else False
+    return {
+        "qa_metadata": {
+            "rubric_confidence": rubric_confidence,
+            "blended_confidence": blended,
+            "coverage_canonical_channels": round(coverage, 2),
+            "canonical_channels_present": n_canon,
+            "score_stats": {
+                "avg": round(avg, 2) if avg is not None else None,
+                "min": round(min_v, 2) if min_v is not None else None,
+                "max": round(max_v, 2) if max_v is not None else None,
+                "channels_scored": len(entries),
+            },
+            "passes_threshold": passes,
+            "refine_recommended": refine_triggers,
+            "thresholds": {
+                "avg_min": settings.critic_score_threshold_avg,
+                "per_channel_min": settings.critic_score_threshold_min,
+            },
+        }
+    }
+
+
+def _enrich_critique(critique: dict[str, Any], settings: Settings) -> dict[str, Any]:
+    """Attach normalized scores + qa_metadata; keep original keys for backward compatibility."""
+    out = dict(critique)
+    raw_scores = out.get("scores")
+    if isinstance(raw_scores, dict):
+        norm: dict[str, float] = {}
+        for k, v in raw_scores.items():
+            f = _score_value_as_float(v)
+            if f is not None:
+                norm[str(k)] = round(max(0.0, min(100.0, f)), 1)
+        if norm:
+            out["scores_normalized"] = norm
+    meta = _qa_metadata_for_critique(out, settings)["qa_metadata"]
+    out["qa_metadata"] = meta
+    return out
+
 
 def _normalize_ig_handle(raw: str | None) -> str | None:
     """Lowercase Instagram username without @; None if invalid."""
@@ -130,19 +240,9 @@ def _needs_refine(critique: dict[str, Any] | None, settings: Settings) -> bool:
     """True if critic scores warrant another refinement pass."""
     if not critique:
         return False
-    scores = critique.get("scores") or {}
-    if not scores:
-        return False
-    vals: list[float] = []
-    for v in scores.values():
-        if isinstance(v, (int, float)):
-            vals.append(float(v))
-    if not vals:
-        return False
-    avg = sum(vals) / len(vals)
-    if avg < settings.critic_score_threshold_avg:
-        return True
-    return any(v < settings.critic_score_threshold_min for v in vals)
+    entries = _coerced_score_entries(critique.get("scores"))
+    vals = [v for _, v in entries]
+    return _needs_refine_scores(vals, settings)
 
 
 def build_node_context(state: CampaignState) -> str:
@@ -1591,14 +1691,19 @@ async def node_critic(state: CampaignState, *, client: AsyncOpenAI, settings: Se
             tool="gpt-structured",
         ),
     )
-    critique, u_crit = await chat_json_object(
+    critique_raw, u_crit = await chat_json_object(
         client=client,
         model=settings.openai_model,
         system=(
             "You are a skeptical creative director + brand lawyer lite. "
-            "Score JSON outputs for consistency with strategy and research. "
-            "Return JSON: scores (object of channel:0-100), issues (array of {channel, severity, fix}), "
-            "revision_directives (array), final_verdict (string)."
+            "Score the creative bundle for consistency with strategy, research, and brand safety. "
+            "Return a single JSON object with exactly these top-level keys: "
+            "scores (object with REQUIRED keys seo, social, video_concepts, messaging_whatsapp — each an integer 0-100), "
+            "issues (array of {channel, severity: low|medium|high, fix}), "
+            "revision_directives (array of short strings), "
+            "final_verdict (one paragraph). "
+            "Do not omit any of the four score keys; use nested objects only inside each channel's creative payload when reasoning, "
+            "not inside scores."
         ),
         user=(
             build_node_context(state)
@@ -1610,13 +1715,18 @@ async def node_critic(state: CampaignState, *, client: AsyncOpenAI, settings: Se
         temperature=0.25,
         phase="critic",
     )
+    critique = _enrich_critique(critique_raw, settings)
     return {
         **_trace_step(
             agent="creative_director_critic",
             phase="critic",
             title="Cross-channel QA & critique",
             summary=critique.get("final_verdict"),
-            reasoning="Explicit scoring makes trade-offs visible for client governance.",
+            reasoning=(
+                "Explicit scoring makes trade-offs visible for client governance. "
+                f"Blended QA confidence: {critique.get('qa_metadata', {}).get('blended_confidence', 'n/a')}/100 "
+                f"(rubric coverage × outcome vs thresholds)."
+            ),
             structured=critique,
         ),
         "critique": critique,
@@ -1645,14 +1755,16 @@ async def node_refine(state: CampaignState, *, client: AsyncOpenAI, settings: Se
             tool="gpt-structured",
         ),
     )
-    refined, u_ref = await chat_json_object(
+    refined_raw, u_ref = await chat_json_object(
         client=client,
         model=settings.openai_model,
         system=(
             "You are a senior copywriter. Revise the campaign creatives using the critic directives. "
-            "Return JSON with keys: seo, social, video_concepts, messaging_whatsapp — each revised. "
+            "Return JSON with REQUIRED top-level keys: seo, social, video_concepts, messaging_whatsapp — each fully revised object "
+            "(same general shape as the input channel). "
             "Preserve segment_variants inside social when present; update them for consistency. "
-            "Also include before_after_highlights (array of {channel, issue, original_snippet, revised_snippet})."
+            "Also include before_after_highlights (array of {channel, issue, original_snippet, revised_snippet}). "
+            "Do not rename keys; do not move channel payloads under a nested wrapper."
         ),
         user=(
             "Critique:\n" + str(critique)[:8000]
@@ -1661,14 +1773,16 @@ async def node_refine(state: CampaignState, *, client: AsyncOpenAI, settings: Se
         temperature=0.4,
         phase="refine",
     )
+    refined = _normalize_refined_creatives(refined_raw, base)
+    n_highlights = len(refined.get("before_after_highlights") or []) if isinstance(refined.get("before_after_highlights"), list) else 0
     return {
         **_trace_step(
             agent="refinement_specialist",
             phase="refine",
             title="Critic-driven refinement loop",
-            summary=f"Revised {len(refined.get('before_after_highlights', []))} issues across channels.",
-            reasoning="Addresses every critic directive; before/after diffs are preserved for transparency.",
-            structured=refined,
+            summary=f"Revised bundle ({n_highlights} before/after highlights); channels merged with base if any key was dropped.",
+            reasoning="Addresses critic directives; missing channel keys are backfilled from the pre-refine bundle for downstream QA.",
+            structured={"channels": list(_CREATIVE_BUNDLE_KEYS), "highlights": n_highlights},
         ),
         "refined_creatives": refined,
         "refine_round": rr + 1,
@@ -1679,9 +1793,30 @@ async def node_refine(state: CampaignState, *, client: AsyncOpenAI, settings: Se
 async def node_critic_recheck(state: CampaignState, *, client: AsyncOpenAI, settings: Settings) -> dict[str, Any]:
     """Second QA pass on refined creatives (after refinement loop iteration)."""
     r = _req(state)
-    refined = state.get("refined_creatives") or {}
-    if not refined:
-        return {}
+    refined_raw = state.get("refined_creatives") or {}
+    base = state.get("creatives") or {}
+    refined = _normalize_refined_creatives(refined_raw, base)
+    if not _bundle_has_any_channel(refined):
+        refined = base
+    if not _bundle_has_any_channel(refined):
+        return {
+            **_trace_step(
+                agent="creative_director_critic_recheck",
+                phase="critic_recheck",
+                title="Post-refinement QA recheck skipped",
+                summary="No creative bundle available to score after refinement.",
+                reasoning="Refine output was empty and no base creatives were present.",
+            ),
+            "critique_post_refine": _enrich_critique(
+                {
+                    "scores": {k: 0 for k in _CREATIVE_BUNDLE_KEYS},
+                    "issues": [{"channel": "all", "severity": "high", "fix": "Regenerate creatives — bundle missing after refine."}],
+                    "revision_directives": [],
+                    "final_verdict": "Recheck skipped: empty bundle.",
+                },
+                settings,
+            ),
+        }
     _emit_live(
         state,
         _act(
@@ -1692,14 +1827,17 @@ async def node_critic_recheck(state: CampaignState, *, client: AsyncOpenAI, sett
             tool="gpt-structured",
         ),
     )
-    critique2, u_crec = await chat_json_object(
+    critique2_raw, u_crec = await chat_json_object(
         client=client,
         model=settings.openai_model,
         system=(
             "You are a skeptical creative director + brand lawyer lite. "
             "Score the REFINED creative JSON for consistency with strategy and research. "
-            "Return JSON: scores (object of channel:0-100), issues (array of {channel, severity, fix}), "
-            "revision_directives (array), final_verdict (string)."
+            "Return a single JSON object with exactly these top-level keys: "
+            "scores (object with REQUIRED keys seo, social, video_concepts, messaging_whatsapp — each integer 0-100), "
+            "issues (array of {channel, severity: low|medium|high, fix}), "
+            "revision_directives (array of short strings), "
+            "final_verdict (one paragraph)."
         ),
         user=(
             build_node_context(state)
@@ -1711,13 +1849,17 @@ async def node_critic_recheck(state: CampaignState, *, client: AsyncOpenAI, sett
         temperature=0.25,
         phase="critic_recheck",
     )
+    critique2 = _enrich_critique(critique2_raw, settings)
     return {
         **_trace_step(
             agent="creative_director_critic_recheck",
             phase="critic_recheck",
             title="Post-refinement QA recheck",
             summary=critique2.get("final_verdict"),
-            reasoning="Validates refined copy before localization and scheduling.",
+            reasoning=(
+                "Validates refined copy before localization and scheduling. "
+                f"Blended QA confidence: {critique2.get('qa_metadata', {}).get('blended_confidence', 'n/a')}/100."
+            ),
             structured=critique2,
         ),
         "critique_post_refine": critique2,
@@ -2158,32 +2300,93 @@ async def node_content_schedule(state: CampaignState, *, client: AsyncOpenAI, se
     }
 
 
+def _performance_sim_grounding_context(state: CampaignState) -> str:
+    """Evidence for reach/engagement sim: calendar cadence, IG history, research, trends, search demand."""
+    parts: list[str] = []
+    cal = state.get("campaign_calendar") or {}
+    if isinstance(cal, dict):
+        summ = cal.get("summary")
+        if summ:
+            parts.append(
+                "=== 30-DAY CAMPAIGN CALENDAR (includes by_channel counts + timing_reasoning from IG history) ===\n"
+                + json.dumps(summ, default=str)[:7000]
+            )
+
+    parts.append(
+        "=== RESEARCH DIGEST (competitors, social listening, market trends — use for growth/momentum assumptions) ===\n"
+        + _research_digest(state)[:9000]
+    )
+
+    reddit = state.get("reddit_snapshot") or {}
+    if isinstance(reddit, dict) and (reddit.get("posts") or reddit.get("query")):
+        parts.append("=== REDDIT (interest / volume proxy) ===\n" + json.dumps(reddit, default=str)[:2800])
+
+    kgw = state.get("keyword_graph") or {}
+    if isinstance(kgw, dict) and kgw:
+        slim = {
+            "top_keywords": (kgw.get("top_keywords") or [])[:25],
+            "total_nodes": kgw.get("total_nodes"),
+            "total_edges": kgw.get("total_edges"),
+        }
+        parts.append("=== KEYWORD GRAPH (search demand proxy) ===\n" + json.dumps(slim, default=str)[:3500])
+
+    aud = state.get("audience_segments") or {}
+    if isinstance(aud, dict) and aud:
+        parts.append("=== AUDIENCE SEGMENTS (addressable interest) ===\n" + json.dumps(aud, default=str)[:3500])
+
+    return "\n\n".join(parts)
+
+
 async def node_performance_sim(state: CampaignState, *, client: AsyncOpenAI, settings: Settings) -> dict[str, Any]:
-    """Simulated performance projections per channel."""
+    """Simulated performance projections per channel, grounded in calendar + past analysis + trends."""
     _emit_live(
         state,
         _act(
             phase="performance",
             agent="performance_simulator",
             action="llm_call",
-            detail="Simulating 30-day reach, engagement, and lead projections by channel",
+            detail="Estimating 30-day reach from IG/competitor baselines, calendar cadence, and trend research",
         ),
     )
+    grounding = _performance_sim_grounding_context(state)
+    strat = state.get("strategy") or {}
+    creatives_use = state.get("refined_creatives") or state.get("creatives") or {}
     sim, u_perf = await chat_json_object(
         client=client,
         model=settings.openai_model_fast,
         system=(
-            "Simulate realistic 30-day performance projections for this campaign. Return JSON: "
-            "channels (array of {name, impressions_estimate, engagement_rate, click_through_rate, "
-            "estimated_leads, confidence}), overall_projected_reach, key_risks (array), "
-            "optimization_suggestions (array), reasoning_summary."
+            "You simulate the NEXT 30 DAYS of marketing performance for this brand. "
+            "You MUST ground numbers in the evidence block: brand/competitor Instagram metrics (followers, avg engagement), "
+            "calendar total_events and by_channel counts, timing_reasoning (data-driven posting windows), "
+            "market/trend narratives, Reddit/keyword demand proxies, and audience segments. "
+            "If Instagram follower count exists, use it to sanity-check organic reach (reach is often a fraction of followers × posts; "
+            "impressions can exceed reach). If evidence is thin, lower confidence and say so in methodology. "
+            "Apply monthly/trend context from trends_research and social_research (seasonality, category momentum, headwinds). "
+            "Return JSON only with keys:\n"
+            "grounding_summary (string — 2-4 sentences on which signals drove the model),\n"
+            "past_performance_signals (object: e.g. instagram_followers, avg_likes_if_known, engagement_proxy_pct, "
+            "competitor_benchmark_note, calendar_total_events — use nulls if unknown),\n"
+            "monthly_trend_notes (string — how trends/monthly seasonality adjusted the outlook),\n"
+            "channels (array of objects, one per major channel in the calendar or strategy): "
+            "name, impressions_estimate (number, 30-day), estimated_reach_30d (number, unique accounts reached), "
+            "reach_methodology (string — formula-style explanation using followers/cadence/ER), "
+            "engagement_rate (number 0-100), engagement_rate_basis (string — tie to past IG or industry bench), "
+            "click_through_rate (number 0-100), estimated_leads (number), "
+            "confidence (string: low|medium|high), methodology (string — one sentence),\n"
+            "overall_projected_reach (number, sum or deduped narrative reach across channels — state assumption), "
+            "overall_projected_impressions (number, optional sum of impressions_estimate),\n"
+            "key_risks (array of strings), optimization_suggestions (array of strings), reasoning_summary (string)."
         ),
         user=(
             build_node_context(state)
-            + "\nStrategy:\n" + str(state.get("strategy"))[:4000]
-            + "\nCalendar summary:\n" + str((state.get("campaign_calendar") or {}).get("summary"))[:2000]
+            + "\nStrategy excerpt:\n"
+            + str(strat)[:4500]
+            + "\nCreatives excerpt (volume/intensity proxy):\n"
+            + str(creatives_use)[:5000]
+            + "\n\nEVIDENCE FOR PROJECTIONS:\n"
+            + grounding[:22_000]
         ),
-        temperature=0.3,
+        temperature=0.25,
         phase="performance",
     )
     return {
@@ -2192,7 +2395,10 @@ async def node_performance_sim(state: CampaignState, *, client: AsyncOpenAI, set
             phase="performance",
             title="Campaign performance simulation",
             summary=sim.get("reasoning_summary"),
-            reasoning="Estimated projections grounded in channel plan and calendar density.",
+            reasoning=(
+                "Reach and impressions estimated from calendar cadence, brand/competitor Instagram baselines, "
+                "timing optimizer signals, and trend/research narratives — see grounding_summary."
+            ),
             structured=sim,
         ),
         "performance_sim": sim,
