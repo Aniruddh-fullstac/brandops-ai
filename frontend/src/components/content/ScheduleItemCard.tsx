@@ -47,6 +47,11 @@ export function ScheduleItemCard({ row, compact }: { row: ScheduleRow; compact?:
           {row.format && (
             <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">{row.format}</span>
           )}
+          {row.target_segment && (
+            <span className="rounded-md border border-indigo-100 bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-800">
+              {row.target_segment}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1.5 text-xs text-slate-500">
           <Calendar size={14} className="text-indigo-400" />

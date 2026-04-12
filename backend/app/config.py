@@ -43,6 +43,11 @@ class Settings(BaseSettings):
         description="GET URL; use {prompt} (URL-encoded) or {prompt_raw} for literal text",
     )
 
+    # Critic / refinement — scores are 0–100 per channel from the QA critic node
+    critic_score_threshold_avg: float = Field(75.0, alias="CRITIC_SCORE_THRESHOLD_AVG")
+    critic_score_threshold_min: float = Field(60.0, alias="CRITIC_SCORE_THRESHOLD_MIN")
+    critic_max_refine_rounds: int = Field(2, alias="CRITIC_MAX_REFINE_ROUNDS", ge=1, le=5)
+
     http_timeout_s: float = Field(25.0, alias="HTTP_TIMEOUT_S")
     max_brand_page_chars: int = Field(48_000, alias="MAX_BRAND_PAGE_CHARS")
     cors_origins: str = Field("http://localhost:5173", alias="CORS_ORIGINS")

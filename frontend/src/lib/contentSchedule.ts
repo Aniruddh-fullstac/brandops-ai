@@ -16,6 +16,8 @@ export type ScheduleRow = {
   whatsapp_message?: string | null;
   push_title?: string | null;
   push_body?: string | null;
+  /** Audience segment this post is tailored for (when segment variants exist). */
+  target_segment?: string | null;
 };
 
 export type ContentScheduleArtifact = {

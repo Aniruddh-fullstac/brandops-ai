@@ -35,6 +35,8 @@ class AgentTraceStep(BaseModel):
         "performance",
         "visual",
         "finalize",
+        "memory",
+        "critic_recheck",
     ]
     title: str
     summary: str | None = None
@@ -72,6 +74,18 @@ class CampaignArtifacts(BaseModel):
     video_concepts: dict[str, Any]
     messaging_whatsapp: dict[str, Any]
     creative_critique: dict[str, Any]
+    creative_critique_post_refine: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Second QA pass on refined creatives (present when refinement ran).",
+    )
+    original_creatives: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Pre-refinement creative bundle for diffing against delivered copy.",
+    )
+    memory_resolution: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Cross-agent conflict detection and unified guardrails for creatives.",
+    )
     refined_creatives: dict[str, Any] = Field(default_factory=dict)
     localized: dict[str, Any]
     keyword_graph: dict[str, Any] = Field(default_factory=dict)

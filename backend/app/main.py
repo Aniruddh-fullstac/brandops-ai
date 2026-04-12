@@ -646,9 +646,20 @@ async def stream_campaign(
                         if sse:
                             yield sse
                     activity_len = len(acts)
-                for artifact_key in ("strategy", "creatives", "critique", "refined_creatives",
-                                     "keyword_graph", "campaign_calendar", "content_schedule",
-                                     "audience_segments", "performance_sim", "final_artifacts"):
+                for artifact_key in (
+                    "strategy",
+                    "creatives",
+                    "critique",
+                    "critique_post_refine",
+                    "refined_creatives",
+                    "memory_resolution",
+                    "keyword_graph",
+                    "campaign_calendar",
+                    "content_schedule",
+                    "audience_segments",
+                    "performance_sim",
+                    "final_artifacts",
+                ):
                     if state.get(artifact_key) and artifact_key not in sent_keys:
                         sent_keys.add(artifact_key)
                         yield _sse(

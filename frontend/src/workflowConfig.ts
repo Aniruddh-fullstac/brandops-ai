@@ -9,6 +9,9 @@ import {
   MapPin,
   CalendarClock,
   PackageCheck,
+  Users,
+  Brain,
+  BadgeCheck,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -50,6 +53,20 @@ export const GRAPH_PIPELINE: readonly PipelineNode[] = [
     icon: Lightbulb,
   },
   {
+    id: "audience_segments",
+    label: "Segments",
+    sub: "2–3 micro-audiences",
+    description: "Splits the audience into distinct segments with hooks and channel fit before creative generation.",
+    icon: Users,
+  },
+  {
+    id: "memory_resolve",
+    label: "Memory",
+    sub: "Conflict resolution",
+    description: "Detects contradictory brand signals across agents and locks unified guardrails for creatives.",
+    icon: Brain,
+  },
+  {
     id: "creatives",
     label: "Creatives",
     sub: "4 parallel channels",
@@ -71,10 +88,17 @@ export const GRAPH_PIPELINE: readonly PipelineNode[] = [
     icon: Wrench,
   },
   {
+    id: "critic_recheck",
+    label: "QA recheck",
+    sub: "On refined draft",
+    description: "Re-scores refined creatives; may trigger another refinement pass up to the configured maximum.",
+    icon: BadgeCheck,
+  },
+  {
     id: "post_critic_parallel",
     label: "Localize & analyze",
-    sub: "Geo, keywords, calendar, segments",
-    description: "Parallel agents handle geo-localization, keyword graphs, content calendars, and segment analysis.",
+    sub: "Geo, keywords, calendar",
+    description: "Parallel agents handle geo-localization, keyword graphs, and the campaign calendar.",
     icon: MapPin,
   },
   {

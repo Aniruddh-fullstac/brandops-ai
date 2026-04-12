@@ -6,10 +6,13 @@ export const DEPENDENCIES: Record<string, string[]> = {
   brand_fetch: ["ingest"],
   parallel_research: ["brand_fetch"],
   strategy: ["parallel_research"],
-  creatives: ["strategy"],
+  audience_segments: ["strategy"],
+  memory_resolve: ["audience_segments"],
+  creatives: ["memory_resolve"],
   critic: ["creatives"],
   refine: ["critic"],
-  post_critic_parallel: ["refine"],
+  critic_recheck: ["refine"],
+  post_critic_parallel: ["critic_recheck", "critic"],
   parallel_schedule_bundle: ["post_critic_parallel"],
   finalize: ["parallel_schedule_bundle"],
 };
@@ -20,7 +23,7 @@ export const DEPENDENCIES: Record<string, string[]> = {
  * The backend uses different phase names than the graph node IDs:
  *   - "parallel_research" node → steps with phase "research"
  *   - "creatives" node → steps with phase "creative"
- *   - "post_critic_parallel" → steps with phases "localize", "keyword_graph", "audience", "timing"
+ *   - "post_critic_parallel" → steps with phases "localize", "keyword_graph", "timing"
  *   - "parallel_schedule_bundle" → steps with phases "content_schedule", "performance", "visual"
  *
  * Steps whose phase exactly matches a node ID are also captured (ingest, brand_fetch, strategy, critic, refine, finalize).
@@ -30,10 +33,13 @@ const NODE_TO_PHASES: Record<string, string[]> = {
   brand_fetch: ["brand_fetch"],
   parallel_research: ["research"],
   strategy: ["strategy"],
+  audience_segments: ["audience"],
+  memory_resolve: ["memory"],
   creatives: ["creative"],
   critic: ["critic"],
   refine: ["refine"],
-  post_critic_parallel: ["localize", "keyword_graph", "audience", "timing"],
+  critic_recheck: ["critic_recheck"],
+  post_critic_parallel: ["localize", "keyword_graph", "timing"],
   parallel_schedule_bundle: ["content_schedule", "performance", "visual"],
   finalize: ["finalize"],
 };

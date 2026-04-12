@@ -122,6 +122,8 @@ async def route_query(
             context_parts.append(f"Competitor Landscape: {json.dumps(artifacts['competitor_landscape'], default=str)[:400]}")
         if artifacts.get("audience_and_messaging"):
             context_parts.append(f"Audience & Messaging: {json.dumps(artifacts['audience_and_messaging'], default=str)[:400]}")
+        if artifacts.get("memory_resolution"):
+            context_parts.append(f"Memory / conflict resolution: {json.dumps(artifacts['memory_resolution'], default=str)[:400]}")
         if artifacts.get("channel_strategy"):
             context_parts.append(f"Channel Strategy: {json.dumps(artifacts['channel_strategy'], default=str)[:300]}")
         if artifacts.get("seo"):

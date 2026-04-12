@@ -24,15 +24,18 @@ class CampaignState(TypedDict, total=False):
     competitor_instagram_analysis: dict[str, Any]
 
     strategy: dict[str, Any]
+    audience_segments: dict[str, Any]
+    memory_resolution: dict[str, Any]
     creatives: dict[str, Any]
     critique: dict[str, Any]
+    critique_post_refine: dict[str, Any]
     refined_creatives: dict[str, Any]
+    refine_round: int
     localized: dict[str, Any]
 
     keyword_graph: dict[str, Any]
     campaign_calendar: dict[str, Any]
     content_schedule: dict[str, Any]
-    audience_segments: dict[str, Any]
     performance_sim: dict[str, Any]
 
     image_prompts: list[str]

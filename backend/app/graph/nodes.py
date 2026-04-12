@@ -102,6 +102,25 @@ def _normalize_ig_handle(raw: str | None) -> str | None:
     return h
 
 
+def _needs_refine(critique: dict[str, Any] | None, settings: Settings) -> bool:
+    """True if critic scores warrant another refinement pass."""
+    if not critique:
+        return False
+    scores = critique.get("scores") or {}
+    if not scores:
+        return False
+    vals: list[float] = []
+    for v in scores.values():
+        if isinstance(v, (int, float)):
+            vals.append(float(v))
+    if not vals:
+        return False
+    avg = sum(vals) / len(vals)
+    if avg < settings.critic_score_threshold_avg:
+        return True
+    return any(v < settings.critic_score_threshold_min for v in vals)
+
+
 def build_node_context(state: CampaignState) -> str:
     r = _req(state)
     parts = [
@@ -1016,6 +1035,12 @@ async def node_creative_suite(state: CampaignState, *, client: AsyncOpenAI, sett
     base = build_node_context(state) + "\n\nStrategy JSON:\n" + str(state.get("strategy"))[:10_000]
     digest = _research_digest(state)[:8000]
     ig_ctx = _instagram_creative_context(state)
+    seg = state.get("audience_segments") or {}
+    mem = state.get("memory_resolution") or {}
+    seg_blob = ("\n\nAUDIENCE SEGMENTS (produce one tailored variant per segment):\n" + str(seg)[:6000]) if seg else ""
+    mem_blob = (
+        "\n\nCROSS-AGENT MEMORY — RESOLVED GUARDRAILS (apply strictly; cite in reasoning_summary):\n" + str(mem)[:4000]
+    ) if mem else ""
 
     ig_instruction = (
         "\n\nINSTAGRAM INTELLIGENCE (use this to inform creative decisions and cite it in reasoning_summary):\n"
@@ -1030,7 +1055,7 @@ async def node_creative_suite(state: CampaignState, *, client: AsyncOpenAI, sett
             "Return JSON: pillar_topics (array), cluster_map, target_keywords (array of {keyword, intent, page_type}), "
             "blog_outline (array of sections), meta_templates, internal_linking_plan, reasoning_summary."
         ),
-        user_blob=base + "\nResearch:\n" + digest + ig_instruction,
+        user_blob=base + "\nResearch:\n" + digest + seg_blob + mem_blob + ig_instruction,
     )
     social_task = _creative_json(
         client=client,
@@ -1041,7 +1066,8 @@ async def node_creative_suite(state: CampaignState, *, client: AsyncOpenAI, sett
             "audience language from the Instagram intelligence section. "
             "Call out in reasoning_summary: (a) which caption patterns you used, "
             "(b) which competitor gap you are exploiting, "
-            "(c) how audience sentiment shaped the tone."
+            "(c) how audience sentiment shaped the tone, "
+            "(d) how each segment variant differs."
         ),
         system_schema=(
             "Return JSON: linkedin (array of posts with hook, body, cta), "
@@ -1051,9 +1077,11 @@ async def node_creative_suite(state: CampaignState, *, client: AsyncOpenAI, sett
             "twitter (array of {text, hashtags}), "
             "email_broadcasts (array of {subject, preheader, body}), "
             "push_notifications (array of {title, body, trigger_context}), "
-            "reasoning_summary (must reference Instagram sentiment findings and competitor gaps)."
+            "segment_variants (array of {segment_name, linkedin, instagram, twitter, tiktok_or_reels, "
+            "  hook_angle, tone_notes} — one entry per audience segment from the brief; tailor hooks and tone), "
+            "reasoning_summary (must reference Instagram sentiment, competitor gaps, segments, and memory guardrails)."
         ),
-        user_blob=base + "\nResearch:\n" + digest + ig_instruction,
+        user_blob=base + "\nResearch:\n" + digest + seg_blob + mem_blob + ig_instruction,
     )
     video_task = _creative_json(
         client=client,
@@ -1063,7 +1091,7 @@ async def node_creative_suite(state: CampaignState, *, client: AsyncOpenAI, sett
             "Return JSON: hero_spot (object with logline, scenes), product_demo_variants (array), "
             "ugc_briefs (array), production_notes, reasoning_summary."
         ),
-        user_blob=base + "\nResearch:\n" + digest + ig_instruction,
+        user_blob=base + "\nResearch:\n" + digest + seg_blob + mem_blob + ig_instruction,
     )
     msg_task = _creative_json(
         client=client,
@@ -1073,7 +1101,7 @@ async def node_creative_suite(state: CampaignState, *, client: AsyncOpenAI, sett
             "Return JSON: whatsapp_sequences (array of {name, messages:[{text, timing, cta}]}), "
             "sms_companion (array), compliance_notes, reasoning_summary."
         ),
-        user_blob=base + "\nResearch:\n" + digest + ig_instruction,
+        user_blob=base + "\nResearch:\n" + digest + seg_blob + mem_blob + ig_instruction,
     )
     seo, social, video, msg = await asyncio.gather(seo_task, social_task, video_task, msg_task)
     bundle = {"seo": seo, "social": social, "video_concepts": video, "messaging_whatsapp": msg}
@@ -1148,16 +1176,23 @@ async def node_critic(state: CampaignState, *, client: AsyncOpenAI, settings: Se
 
 
 async def node_refine(state: CampaignState, *, client: AsyncOpenAI, settings: Settings) -> dict[str, Any]:
-    """Refinement loop: takes critic output, fixes creatives, shows before/after."""
-    critique = state.get("critique") or {}
-    creatives = state.get("creatives") or {}
+    """Refinement loop: first pass uses initial critic + creatives; later passes use recheck critique + prior refined."""
+    rr = int(state.get("refine_round") or 0)
+    if rr == 0:
+        critique = state.get("critique") or {}
+        base = state.get("creatives") or {}
+        detail = "Applying critic directives — revising SEO, social, video, and WhatsApp bundles"
+    else:
+        critique = state.get("critique_post_refine") or state.get("critique") or {}
+        base = state.get("refined_creatives") or state.get("creatives") or {}
+        detail = f"Refinement round {rr + 1} — applying post-recheck directives"
     _emit_live(
         state,
         _act(
             phase="refine",
             agent="refinement_specialist",
             action="llm_call",
-            detail="Applying critic directives — revising SEO, social, video, and WhatsApp bundles",
+            detail=detail,
             tool="gpt-structured",
         ),
     )
@@ -1167,11 +1202,12 @@ async def node_refine(state: CampaignState, *, client: AsyncOpenAI, settings: Se
         system=(
             "You are a senior copywriter. Revise the campaign creatives using the critic directives. "
             "Return JSON with keys: seo, social, video_concepts, messaging_whatsapp — each revised. "
+            "Preserve segment_variants inside social when present; update them for consistency. "
             "Also include before_after_highlights (array of {channel, issue, original_snippet, revised_snippet})."
         ),
         user=(
             "Critique:\n" + str(critique)[:8000]
-            + "\nOriginal creatives:\n" + str(creatives)[:12_000]
+            + "\nBase creatives to revise:\n" + str(base)[:12_000]
         ),
         temperature=0.4,
     )
@@ -1185,19 +1221,55 @@ async def node_refine(state: CampaignState, *, client: AsyncOpenAI, settings: Se
             structured=refined,
         ),
         "refined_creatives": refined,
+        "refine_round": rr + 1,
     }
 
 
-def should_refine(state: CampaignState) -> str:
-    """Conditional edge: refine if any critic score < 75, else skip."""
-    critique = state.get("critique") or {}
-    scores = critique.get("scores") or {}
-    if not scores:
-        return "post_critic_parallel"
-    avg = sum(scores.values()) / max(len(scores), 1)
-    if avg < 75 or any(v < 60 for v in scores.values()):
-        return "refine"
-    return "post_critic_parallel"
+async def node_critic_recheck(state: CampaignState, *, client: AsyncOpenAI, settings: Settings) -> dict[str, Any]:
+    """Second QA pass on refined creatives (after refinement loop iteration)."""
+    r = _req(state)
+    refined = state.get("refined_creatives") or {}
+    if not refined:
+        return {}
+    _emit_live(
+        state,
+        _act(
+            phase="critic_recheck",
+            agent="creative_director_critic_recheck",
+            action="analyzing",
+            detail=f"Re-scoring refined creatives for {r.brand_name}",
+            tool="gpt-structured",
+        ),
+    )
+    critique2 = await chat_json_object(
+        client=client,
+        model=settings.openai_model,
+        system=(
+            "You are a skeptical creative director + brand lawyer lite. "
+            "Score the REFINED creative JSON for consistency with strategy and research. "
+            "Return JSON: scores (object of channel:0-100), issues (array of {channel, severity, fix}), "
+            "revision_directives (array), final_verdict (string)."
+        ),
+        user=(
+            build_node_context(state)
+            + "\nStrategy:\n"
+            + str(state.get("strategy"))[:8000]
+            + "\nRefined creatives:\n"
+            + str(refined)[:12_000]
+        ),
+        temperature=0.25,
+    )
+    return {
+        **_trace_step(
+            agent="creative_director_critic_recheck",
+            phase="critic_recheck",
+            title="Post-refinement QA recheck",
+            summary=critique2.get("final_verdict"),
+            reasoning="Validates refined copy before localization and scheduling.",
+            structured=critique2,
+        ),
+        "critique_post_refine": critique2,
+    }
 
 
 async def node_audience_segments(state: CampaignState, *, client: AsyncOpenAI, settings: Settings) -> dict[str, Any]:
@@ -1238,6 +1310,64 @@ async def node_audience_segments(state: CampaignState, *, client: AsyncOpenAI, s
     }
 
 
+async def node_memory_conflict_resolve(state: CampaignState, *, client: AsyncOpenAI, settings: Settings) -> dict[str, Any]:
+    """Detect contradictory brand signals across agents and emit unified guardrails before creatives."""
+    r = _req(state)
+    strat = state.get("strategy") or {}
+    b_ig = state.get("brand_instagram_analysis") or {}
+    comp = (state.get("competitor_research") or {}).get("structured") or {}
+    social = (state.get("social_research") or {}).get("structured") or {}
+    aud = state.get("audience_segments") or {}
+    _emit_live(
+        state,
+        _act(
+            phase="memory",
+            agent="cross_agent_memory",
+            action="llm_call",
+            detail=f"Reconciling strategy, research, Instagram voice, and segments for {r.brand_name}",
+            tool="gpt-structured",
+        ),
+    )
+    resolved = await chat_json_object(
+        client=client,
+        model=settings.openai_model_fast,
+        system=(
+            "You are a brand governance memory layer. Compare the strategy, audience segments, "
+            "social research, competitor positioning, and brand Instagram voice (if any). "
+            "Return JSON only: "
+            "conflicts (array of {signal_a, signal_b, description, severity: low|medium|high}), "
+            "resolution (object: unified_tone, messaging_guardrails (array of strings), "
+            "segment_tone_overrides (array of {segment_name, note}), notes_for_creatives (string)), "
+            "reasoning_summary (string)."
+        ),
+        user=(
+            build_node_context(state)
+            + "\n\nStrategy:\n"
+            + str(strat)[:6000]
+            + "\n\nAudience segments:\n"
+            + str(aud)[:4000]
+            + "\n\nCompetitor landscape (structured):\n"
+            + str(comp)[:4000]
+            + "\n\nSocial research (structured):\n"
+            + str(social)[:3000]
+            + "\n\nBrand Instagram analysis:\n"
+            + str(b_ig)[:4000]
+        ),
+        temperature=0.2,
+    )
+    return {
+        **_trace_step(
+            agent="cross_agent_memory",
+            phase="memory",
+            title="Cross-agent memory & conflict resolution",
+            summary=resolved.get("reasoning_summary"),
+            reasoning="Surfaces contradictions and locks a single set of guardrails before creative generation.",
+            structured=resolved,
+        ),
+        "memory_resolution": resolved,
+    }
+
+
 async def node_keyword_graph(state: CampaignState, *, client: AsyncOpenAI, settings: Settings) -> dict[str, Any]:
     """Deterministic: NetworkX + PageRank keyword graph engine."""
     from app.services.keyword_graph import build_keyword_graph
@@ -1251,7 +1381,8 @@ async def node_keyword_graph(state: CampaignState, *, client: AsyncOpenAI, setti
             detail="Computing keyword co-occurrence graph (NetworkX PageRank)",
         ),
     )
-    seo = (state.get("creatives") or {}).get("seo") or {}
+    bundle_kw = state.get("refined_creatives") or state.get("creatives") or {}
+    seo = bundle_kw.get("seo") or {}
     strat = state.get("strategy") or {}
     kw_list = [str(k.get("keyword", "")) for k in (seo.get("target_keywords") or []) if k.get("keyword")]
     pillars = [str(p) for p in (strat.get("messaging_pillars") or []) if p]
@@ -1350,14 +1481,18 @@ async def node_content_schedule(state: CampaignState, *, client: AsyncOpenAI, se
             "  platforms: object with keys exactly: instagram, linkedin, twitter, tiktok, email, whatsapp, "
             "push_notification, blog, video. Each value is an array of objects with fields: "
             "scheduled_at (ISO 8601 datetime), headline, caption, hashtags (array of strings), cta, format, "
+            "target_segment (string or null), "
             "image_needed (boolean), image_prompt (string or null), "
             "email_subject (null unless platform is email), email_preheader (null unless email), "
             "whatsapp_message (null unless whatsapp), push_title (null unless push_notification), "
             "push_body (null unless push_notification).\n"
-            "  timeline: flat array of the same row shape plus id (string like cs_001), sorted by scheduled_at ascending. "
+            "  timeline: flat array of the same row shape plus id (string like cs_001), target_segment (string or null — "
+            "audience segment name when the post is tailored to a segment from creatives.social.segment_variants), "
+            "sorted by scheduled_at ascending. "
             "Include at least 28 rows across instagram, linkedin, twitter, tiktok, email, whatsapp, push_notification, blog. "
             "Use campaign_calendar days + event times to build scheduled_at. "
             "Adapt copy from creatives JSON; align tone with localized cultural notes when present. "
+            "When segment_variants exist, distribute posts across segments (not all posts need a segment; use null when broad). "
             "Social posts: include 3-8 hashtags where relevant; omit hashtags for email, whatsapp, push."
         ),
         user=(
@@ -1454,7 +1589,7 @@ async def node_localize(state: CampaignState, *, client: AsyncOpenAI, settings: 
             + "\nCreatives:\n"
             + str(creatives_to_use)[:8000]
             + "\nCritique:\n"
-            + str(state.get("critique"))[:4000]
+            + str(state.get("critique_post_refine") or state.get("critique") or {})[:4000]
         ),
         temperature=0.45,
     )
@@ -1499,7 +1634,10 @@ async def node_visuals(state: CampaignState, *, client: AsyncOpenAI, settings: S
             "Return JSON {prompts: array of distinct short DALL·E prompts for campaign key art, "
             f"at least 3 and up to {max(3, settings.max_image_variants)} items, different angles or formats."
         ),
-        user="Strategy + social hooks:\n" + str(state.get("strategy"))[:4000] + "\n" + str(state.get("creatives"))[:4000],
+        user="Strategy + social hooks:\n"
+        + str(state.get("strategy"))[:4000]
+        + "\n"
+        + str(state.get("refined_creatives") or state.get("creatives") or {})[:4000],
     )
     prompts = [str(p) for p in (prompts_obj.get("prompts") or []) if str(p).strip()]
     _emit_live(
@@ -1555,14 +1693,13 @@ def _merge_partial_returns(*parts: dict[str, Any]) -> dict[str, Any]:
 async def node_post_critic_parallel(
     state: CampaignState, *, client: AsyncOpenAI, settings: Settings
 ) -> dict[str, Any]:
-    """Run localize, keyword graph, timing, and audience in parallel (independent given prior state)."""
-    loc, kw, tim, aud = await asyncio.gather(
+    """Run localize, keyword graph, and timing in parallel (audience + memory run before creatives)."""
+    loc, kw, tim = await asyncio.gather(
         node_localize(state, client=client, settings=settings),
         node_keyword_graph(state, client=client, settings=settings),
         node_timing(state, client=client, settings=settings),
-        node_audience_segments(state, client=client, settings=settings),
     )
-    return _merge_partial_returns(loc, kw, tim, aud)
+    return _merge_partial_returns(loc, kw, tim)
 
 
 async def node_parallel_schedule_bundle(
@@ -1615,6 +1752,9 @@ async def node_finalize(state: CampaignState, *, client: AsyncOpenAI, settings: 
         video_concepts=final_creatives.get("video_concepts") or creatives.get("video_concepts") or {},
         messaging_whatsapp=final_creatives.get("messaging_whatsapp") or creatives.get("messaging_whatsapp") or {},
         creative_critique=state.get("critique") or {},
+        creative_critique_post_refine=state.get("critique_post_refine") or {},
+        original_creatives=creatives,
+        memory_resolution=state.get("memory_resolution") or {},
         refined_creatives=state.get("refined_creatives") or {},
         localized=state.get("localized") or {},
         keyword_graph=state.get("keyword_graph") or {},

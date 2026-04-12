@@ -67,9 +67,12 @@ function AgentCard({ step, index }: { step: TraceStep; index: number }) {
     brand_fetch: "bg-cyan-50 text-cyan-700 border-cyan-200",
     parallel_research: "bg-amber-50 text-amber-700 border-amber-200",
     strategy: "bg-violet-50 text-violet-700 border-violet-200",
+    audience_segments: "bg-fuchsia-50 text-fuchsia-800 border-fuchsia-200",
+    memory_resolve: "bg-purple-50 text-purple-800 border-purple-200",
     creatives: "bg-pink-50 text-pink-700 border-pink-200",
     critic: "bg-orange-50 text-orange-700 border-orange-200",
     refine: "bg-rose-50 text-rose-700 border-rose-200",
+    critic_recheck: "bg-amber-50 text-amber-800 border-amber-200",
     post_critic_parallel: "bg-emerald-50 text-emerald-700 border-emerald-200",
     parallel_schedule_bundle: "bg-teal-50 text-teal-700 border-teal-200",
     finalize: "bg-indigo-50 text-indigo-700 border-indigo-200",
@@ -220,7 +223,10 @@ export default function NewCampaign() {
             if (evt.event === "run_started") store.setRunId(evt.payload.run_id);
             if (evt.event === "graph_node_finished") {
               store.addGraphNode(evt.payload.node);
-              if (evt.payload.node === "post_critic_parallel") store.addGraphNode("refine");
+              if (evt.payload.node === "post_critic_parallel") {
+                store.addGraphNode("refine");
+                store.addGraphNode("critic_recheck");
+              }
             }
             if (evt.event === "step_completed") store.addStep(evt.payload.step);
             if (evt.event === "agent_activity") store.addActivity(evt.payload);

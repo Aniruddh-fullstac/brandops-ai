@@ -26,6 +26,8 @@ export const sourceMatchers = {
   brandFetch: (s: TraceStep) => s.phase === "brand_fetch",
   creatives: (s: TraceStep) => s.phase === "creative" || s.phase === "refine",
   critic: (s: TraceStep) => s.phase === "critic",
+  criticRecheck: (s: TraceStep) => s.phase === "critic_recheck" || /critic_recheck/i.test(s.agent),
+  memory: (s: TraceStep) => s.phase === "memory" || /cross_agent_memory/i.test(s.agent),
   seo: (s: TraceStep) => /seo/i.test(s.agent) || /seo/i.test(s.title),
   localize: (s: TraceStep) => s.phase === "localize",
   audience: (s: TraceStep) => s.phase === "audience" || /segment/i.test(s.agent),
