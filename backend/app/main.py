@@ -581,6 +581,7 @@ async def stream_campaign(
         "owner_id": uid or "anonymous",
         "brand_name": req.brand_name,
         "status": "running",
+        "trace_step_count": 0,
         "request": req.model_dump(mode="json"),
     })
 
@@ -688,6 +689,7 @@ async def stream_campaign(
         await fb.update_campaign(campaign_doc_id, {
             "status": "completed",
             "trace": trace,
+            "trace_step_count": len(trace),
             "artifacts": result_json.get("artifacts", {}),
             "llm_token_usage": aggregate_token_usage(tok_events),
         })
@@ -711,6 +713,7 @@ async def stream_campaign(
         tr = last.get("trace")
         if tr:
             patch["trace"] = tr
+            patch["trace_step_count"] = len(tr)
         await fb.update_campaign(campaign_doc_id, patch)
         yield _sse({"event": "run_failed", "payload": {"error": str(exc)}})
 

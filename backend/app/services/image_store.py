@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import re
 from pathlib import Path
 
@@ -46,8 +45,9 @@ def _suffix_from_response(r: httpx.Response) -> str:
     return ".webp"
 
 
-def _mime_from_ext(ext: str) -> str:
-    return {".webp": "image/webp", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}.get(ext, "image/webp")
+def _media_url(run_id: str, filename: str) -> str:
+    """URL path served by ``GET /api/media/runs/{run_id}/{filename}`` (not stored as base64 in Firestore)."""
+    return f"/api/media/runs/{run_id}/{filename}"
 
 
 async def persist_remote_image(
@@ -57,7 +57,7 @@ async def persist_remote_image(
     settings: Settings,
     basename: str,
 ) -> str | None:
-    """Download one URL, save as ``basename`` + detected ext, return data URI."""
+    """Download one URL, save under ``media_root/runs/{run_id}/``, return API path (no base64)."""
     if not url.startswith("http") or not is_safe_run_id(run_id):
         return None
     safe_base = re.sub(r"[^a-zA-Z0-9._-]+", "_", basename).strip("._")[:80] or "img"
@@ -76,11 +76,10 @@ async def persist_remote_image(
         if not (r.content and len(r.content) > 8):
             return None
         ext = _suffix_from_response(r)
-        path = out_dir / f"{safe_base}{ext}"
+        filename = f"{safe_base}{ext}"
+        path = out_dir / filename
         path.write_bytes(r.content)
-        mime = _mime_from_ext(ext)
-        b64 = base64.b64encode(r.content).decode("ascii")
-        return f"data:{mime};base64,{b64}"
+        return _media_url(run_id, filename)
 
 
 async def persist_remote_images(
@@ -90,9 +89,8 @@ async def persist_remote_images(
     settings: Settings,
 ) -> list[str]:
     """
-    Download remote image URLs, save locally AND encode as base64 data URIs.
-    Returns base64 data URIs for direct embedding (stored in Firestore).
-    Also persists to disk as fallback.
+    Download remote image URLs to ``media_root/runs/{run_id}/``.
+    Returns ``/api/media/runs/...`` paths only (small strings safe for Firestore — not base64).
     """
     if not urls or not is_safe_run_id(run_id):
         return []
@@ -109,12 +107,10 @@ async def persist_remote_images(
         if not (r.content and len(r.content) > 8):
             return None
         ext = _suffix_from_response(r)
-        path = out_dir / f"image_{i:02d}{ext}"
+        filename = f"image_{i:02d}{ext}"
+        path = out_dir / filename
         path.write_bytes(r.content)
-        mime = _mime_from_ext(ext)
-        b64 = base64.b64encode(r.content).decode("ascii")
-        data_uri = f"data:{mime};base64,{b64}"
-        return (i, data_uri)
+        return (i, _media_url(run_id, filename))
 
     async with httpx.AsyncClient(
         timeout=settings.http_timeout_s,
@@ -131,4 +127,4 @@ async def persist_remote_images(
             continue
         ok.append(p)
     ok.sort(key=lambda t: t[0])
-    return [data_uri for _, data_uri in ok]
+    return [path for _, path in ok]

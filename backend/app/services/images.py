@@ -4,7 +4,6 @@ import asyncio
 import urllib.parse
 
 import httpx
-from openai import AsyncOpenAI
 
 from app.config import Settings
 from app.services.platform_visuals import aspect_hint_for_http
@@ -27,82 +26,36 @@ def _is_image_response(resp: httpx.Response) -> bool:
 
 async def generate_one_image(
     *,
-    client: AsyncOpenAI,
     settings: Settings,
     prompt: str,
     size: str,
 ) -> str | None:
     """
-    Single render. `size` must be 1024x1024, 1024x1792, or 1792x1024 for dall-e-3.
-    HTTP provider ignores pixel size; aspect is reinforced in the prompt.
+    Single render via Pranav Pix (HTTP GET). ``size`` selects aspect hint text; pixel size is up to Pix.
     """
     p = (prompt or "").strip()
     if not p:
         return None
-    if settings.image_provider.lower() == "http":
-        hint = aspect_hint_for_http(size)  # type: ignore[arg-type]
-        full = f"{p[:3600]}. {hint}."
-        urls = await _images_via_http(settings, [full])
-        return urls[0] if urls else None
-    if size not in ("1024x1024", "1024x1792", "1792x1024"):
-        size = "1024x1024"
-    try:
-        img = await client.images.generate(
-            model=settings.image_model,
-            prompt=p[:3900],
-            size=size,  # type: ignore[arg-type]
-            quality="standard",
-            n=1,
-        )
-    except Exception:  # noqa: BLE001
-        return None
-    u = img.data[0].url if img.data else None
-    return str(u) if u else None
+    hint = aspect_hint_for_http(size)  # type: ignore[arg-type]
+    full = f"{p[:3600]}. {hint}."
+    urls = await _images_via_http(settings, [full])
+    return urls[0] if urls else None
 
 
 async def generate_campaign_images(
     *,
-    client: AsyncOpenAI,
     settings: Settings,
     prompts: list[str],
 ) -> list[str]:
     """
-    Returns loadable image URLs. Default: HTTP GET to Pix (raw image/webp). Use IMAGE_PROVIDER=openai for DALL·E.
+    Returns loadable image URLs from ``IMAGE_HTTP_TEMPLATE`` (Pranav Pix GET → raw image/webp).
     Requests run in parallel (bounded by ``settings.image_generation_concurrency``).
     """
     cap = max(0, settings.max_image_variants)
     trimmed = [p.strip() for p in prompts[:cap] if p.strip()]
     if not trimmed:
         return []
-
-    if settings.image_provider.lower() == "http":
-        return await _images_via_http(settings, trimmed)
-
-    sem = asyncio.Semaphore(settings.image_generation_concurrency)
-
-    async def one(p: str) -> str | None:
-        async with sem:
-            try:
-                img = await client.images.generate(
-                    model=settings.image_model,
-                    prompt=p[:3900],
-                    size="1024x1024",
-                    quality="standard",
-                    n=1,
-                )
-            except Exception:  # noqa: BLE001
-                return None
-            u = img.data[0].url if img.data else None
-            return str(u) if u else None
-
-    parts = await asyncio.gather(*[one(p) for p in trimmed], return_exceptions=True)
-    urls: list[str] = []
-    for part in parts:
-        if isinstance(part, Exception):
-            continue
-        if part:
-            urls.append(part)
-    return urls
+    return await _images_via_http(settings, trimmed)
 
 
 async def _images_via_http(settings: Settings, prompts: list[str]) -> list[str]:

@@ -15,10 +15,13 @@ class Settings(BaseSettings):
 
     openai_api_key: str = Field(..., alias="OPENAI_API_KEY")
 
-    # Primary model for reasoning + tool use (Responses API)
-    openai_model: str = Field("gpt-4o", alias="OPENAI_MODEL")
-    # Fallback / fast model for structuring and light tasks
+    # Primary model (set OPENAI_MODEL=gpt-4o in .env for heavier reasoning; mini saves ~10× tokens/cost)
+    openai_model: str = Field("gpt-4o-mini", alias="OPENAI_MODEL")
+    # Fast / cheap model for routing, structuring, critics
     openai_model_fast: str = Field("gpt-4o-mini", alias="OPENAI_MODEL_FAST")
+    # Hard caps on prompt size sent to Chat Completions (characters, UTF-8 safe truncation in llm.py)
+    llm_max_system_chars: int = Field(10_000, alias="LLM_MAX_SYSTEM_CHARS", ge=2_000, le=200_000)
+    llm_max_user_chars: int = Field(14_000, alias="LLM_MAX_USER_CHARS", ge=2_000, le=300_000)
 
     web_search_tool: str = Field(
         "web_search_preview",
@@ -26,21 +29,20 @@ class Settings(BaseSettings):
         description="web_search or web_search_preview per account capabilities",
     )
 
-    image_model: str = Field("dall-e-3", alias="OPENAI_IMAGE_MODEL")
     max_image_variants: int = Field(4, alias="OPENAI_MAX_IMAGES", ge=0, le=8)
     max_schedule_post_images: int = Field(
-        48,
+        24,
         alias="MAX_SCHEDULE_POST_IMAGES",
         ge=0,
         le=120,
         description="Cap total generated images for scheduled posts (cost control).",
     )
     image_generation_concurrency: int = Field(
-        12,
+        4,
         alias="IMAGE_GENERATION_CONCURRENCY",
         ge=1,
         le=32,
-        description="Parallel OpenAI/HTTP image requests (async). Lower if you hit rate limits.",
+        description="Parallel Pix HTTP image fetches (async). Lower = gentler on your image endpoint.",
     )
     max_variants_per_post: int = Field(
         3,
@@ -53,15 +55,10 @@ class Settings(BaseSettings):
         default_factory=lambda: Path(__file__).resolve().parent.parent / "data" / "media",
         alias="MEDIA_ROOT",
     )
-    image_provider: str = Field(
-        "http",
-        alias="IMAGE_PROVIDER",
-        description="http (Pix / custom GET → raw image) or openai (DALL·E)",
-    )
     image_http_template: str = Field(
         "https://pix.praanav.in/generate-image?text={prompt}",
         alias="IMAGE_HTTP_TEMPLATE",
-        description="GET URL; use {prompt} (URL-encoded) or {prompt_raw} for literal text",
+        description="Pranav Pix: GET URL returning image/webp; use {prompt} (URL-encoded) or {prompt_raw}",
     )
 
     # Critic / refinement — scores are 0–100 per channel from the QA critic node
@@ -70,7 +67,7 @@ class Settings(BaseSettings):
     critic_max_refine_rounds: int = Field(2, alias="CRITIC_MAX_REFINE_ROUNDS", ge=1, le=5)
 
     http_timeout_s: float = Field(25.0, alias="HTTP_TIMEOUT_S")
-    max_brand_page_chars: int = Field(48_000, alias="MAX_BRAND_PAGE_CHARS")
+    max_brand_page_chars: int = Field(32_000, alias="MAX_BRAND_PAGE_CHARS")
     cors_origins: str = Field("http://localhost:5173", alias="CORS_ORIGINS")
     # Used in QR payloads and CORS for public landing (scan → open app URL).
     public_app_url: str = Field("http://localhost:5173", alias="PUBLIC_APP_URL")

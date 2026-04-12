@@ -42,15 +42,89 @@ def _log_handle_stats_failure(handle: str, exc: BaseException) -> None:
             "login_required",
             "please wait",
             "rate limit",
+            "429",
+            "too many 429",
+            "404",
+            "not found",
+            "does not exist",
+            "user not found",
+            "bad user",
         )
     ):
         logger.warning(
-            "get_handle_stats(%s): Instagram blocked or challenged this session/IP (%s)",
+            "instagrapi get_handle_stats @%s: posts NOT returned — blocked/missing/API drift (%s)",
             handle,
             short,
         )
     else:
-        logger.error("get_handle_stats(%s): %s", handle, exc)
+        logger.error(
+            "instagrapi get_handle_stats @%s: posts NOT returned — %s",
+            handle,
+            exc,
+        )
+
+
+def _user_info_via_search(cl: Any, handle: str) -> Any:
+    """
+    Resolve @handle via private users/search + users/{pk}/info.
+
+    Instagram often 404s users/{username}/usernameinfo/; public web_profile_info then hits 429.
+    Search + user_info_v1 stays on the mobile private API.
+    """
+    from instagrapi.exceptions import UserNotFound
+
+    needle = handle.lower()
+    rows = cl.search_users(handle, count=50)
+    for u in rows:
+        if (u.username or "").lower() == needle:
+            return cl.user_info_v1(str(u.pk))
+    raise UserNotFound(
+        f"No exact username match in search results for {handle!r}",
+        username=handle,
+    )
+
+
+def _user_info_by_username_any(cl: Any, handle: str) -> Any:
+    """Prefer private mobile API; use public web_profile only after private paths fail."""
+    last: BaseException | None = None
+
+    try:
+        return cl.user_info_by_username_v1(handle)
+    except Exception as exc:
+        last = exc
+
+    try:
+        return _user_info_via_search(cl, handle)
+    except Exception as exc:
+        last = exc
+
+    try:
+        return cl.user_info_by_username_gql(handle)
+    except Exception as exc:
+        last = exc
+
+    try:
+        return cl.user_info_by_username(handle, use_cache=True)
+    except Exception as exc:
+        last = exc
+
+    if last is not None:
+        raise last
+    raise RuntimeError("no user_info method succeeded")
+
+
+def _user_medias_any(cl: Any, user_id: str, amount: int) -> list[Any]:
+    last: BaseException | None = None
+    for name in ("user_medias_v1", "user_medias_gql", "user_medias"):
+        try:
+            fn = getattr(cl, name)
+            return fn(user_id, amount=amount)
+        except Exception as exc:
+            last = exc
+            continue
+    if last is not None:
+        raise last
+    raise RuntimeError("no user_medias method succeeded")
 
 
 # ---------------------------------------------------------------------------
@@ -242,15 +316,24 @@ def get_handle_stats(
 
     try:
         cl = _get_client()
-        # Private mobile API only — skip public www/GraphQL first (rate limits + log spam).
-        info = cl.user_info_by_username_v1(handle)
-        user_id = str(info.pk)
+        # Same primary path as test.py get_account_stats — private mobile API only (feed/user, no web_profile 429).
+        try:
+            info = cl.user_info_by_username_v1(handle)
+            user_id = str(info.pk)
+            medias = cl.user_medias_v1(user_id, amount=max_posts)
+        except Exception as primary_exc:
+            logger.info(
+                "instagrapi @%s: user_info_by_username_v1 / user_medias_v1 failed (%s), using fallbacks",
+                handle,
+                primary_exc,
+            )
+            info = _user_info_by_username_any(cl, handle)
+            user_id = str(info.pk)
+            medias = _user_medias_any(cl, user_id, max_posts)
 
         result["followers"] = info.follower_count
         result["following"] = info.following_count
         result["bio"] = info.biography or ""
-
-        medias = cl.user_medias_v1(user_id, amount=max_posts)
 
         posts: list[dict[str, Any]] = []
         total_likes = 0
@@ -290,6 +373,19 @@ def get_handle_stats(
         result["total_video_views"] = total_views
         if posts:
             result["average_likes"] = round(total_likes / len(posts), 2)
+
+        logger.info(
+            "instagrapi get_handle_stats @%s: posts OK — fetched %s post(s), followers=%s, user_id=%s",
+            handle,
+            len(posts),
+            result["followers"],
+            user_id,
+        )
+        if not posts:
+            logger.warning(
+                "instagrapi get_handle_stats @%s: profile resolved but 0 posts returned (private/empty feed?)",
+                handle,
+            )
 
     except Exception as exc:
         result["error"] = str(exc)
@@ -347,12 +443,30 @@ def get_trending_posts_with_comments(
     ranked = sorted(posts, key=lambda p: p.get("engagement", 0), reverse=True)
 
     top_posts: list[dict[str, Any]] = []
+    comments_fetched_total = 0
     for post in ranked[:top_n]:
         if post.get("engagement", 0) < engagement_threshold:
             top_posts.append({**post, "comments_text": []})
             continue
         comments = get_post_comments(post["id"], max_comments=max_comments)
+        comments_fetched_total += len(comments)
         top_posts.append({**post, "comments_text": comments})
+
+    err = stats.get("error")
+    if err:
+        logger.warning(
+            "instagrapi get_trending_posts_with_comments @%s: incomplete — posts step error: %s",
+            handle,
+            err,
+        )
+    else:
+        logger.info(
+            "instagrapi get_trending_posts_with_comments @%s: OK — %s posts, top_n=%s, comment rows pulled=%s",
+            handle,
+            stats.get("posts_fetched", 0),
+            len(top_posts),
+            comments_fetched_total,
+        )
 
     return {
         "handle": stats["handle"],

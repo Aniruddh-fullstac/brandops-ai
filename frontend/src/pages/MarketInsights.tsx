@@ -1,10 +1,11 @@
 import { useCampaignStore } from "../components/CampaignStore";
 import { InsightSection } from "../components/presentation/InsightSection";
 import { InsightFlow } from "../components/presentation/InsightFlow";
+import { KeywordGraphPanel } from "../components/presentation/KeywordGraphPanel";
 import { MemoryResolutionPanel } from "../components/presentation/MemoryResolutionPanel";
 import { SourceFootnotes } from "../components/presentation/SourceFootnotes";
 import { StructuredData } from "../components/presentation/StructuredData";
-import { TrendingUp, Globe, MessageSquare, Sparkles } from "lucide-react";
+import { TrendingUp, Globe, MessageSquare, Sparkles, Waypoints } from "lucide-react";
 import { collectSources, sourceMatchers } from "../lib/traceSources";
 import {
   buildDidLines,
@@ -82,6 +83,16 @@ export default function MarketInsights() {
   const audienceMsg = a.audience_and_messaging as Record<string, unknown> | undefined;
   const executiveSummary = typeof a.executive_summary === "string" ? a.executive_summary : "";
   const memoryRes = a.memory_resolution as Record<string, unknown> | undefined;
+  const kgraph = a.keyword_graph as
+    | {
+        top_keywords?: { keyword: string; score: number }[];
+        clusters?: { id: number; keywords: string[] }[];
+        edges?: { source: string; target: string; weight?: number }[];
+        total_nodes?: number;
+        total_edges?: number;
+      }
+    | undefined;
+  const kwSources = collectSources(steps, (s) => sourceMatchers.keywordGraph(s));
 
   const hasStrategyBlock =
     [positioning, channelStrategy, audienceMsg].some(
@@ -191,6 +202,41 @@ export default function MarketInsights() {
         )}
 
         {memoryRes && Object.keys(memoryRes).length > 0 && <MemoryResolutionPanel data={memoryRes} />}
+
+        {hasAnyCampaign && (
+          <section className="overflow-hidden rounded-2xl border border-indigo-200/70 bg-white shadow-md">
+            <div className="border-b border-indigo-100/80 bg-gradient-to-r from-indigo-50/90 to-white px-6 py-4">
+              <div className="flex items-center gap-2 text-indigo-800">
+                <Waypoints size={18} />
+                <span className="font-display text-lg font-bold text-slate-900">Keyword strategy graph</span>
+              </div>
+              <p className="mt-1 text-xs text-slate-600">
+                Zero-LLM co-occurrence network — PageRank-ranked terms that inform SEO and content agents.
+              </p>
+            </div>
+            <div className="p-6">
+              {kgraph && kgraph.top_keywords && kgraph.top_keywords.length > 0 ? (
+                <>
+                  <KeywordGraphPanel
+                    top_keywords={kgraph.top_keywords}
+                    clusters={kgraph.clusters}
+                    edges={kgraph.edges}
+                    total_nodes={kgraph.total_nodes}
+                    total_edges={kgraph.total_edges}
+                  />
+                  <div className="mt-6 border-t border-slate-100 pt-4">
+                    <SourceFootnotes sources={kwSources} />
+                  </div>
+                </>
+              ) : (
+                <p className="text-sm text-slate-500">
+                  The NetworkX keyword graph fills in after a campaign run completes (research + graph stage). Top terms and
+                  co-occurrence links will appear here.
+                </p>
+              )}
+            </div>
+          </section>
+        )}
 
         <div className="grid gap-6 lg:grid-cols-2">
           <InsightSection

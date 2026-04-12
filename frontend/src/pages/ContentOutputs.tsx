@@ -9,13 +9,16 @@ import { EmailPreview } from "../components/content/EmailPreview";
 import { VideoConceptCard } from "../components/content/VideoConceptCard";
 import { CritiquePanel } from "../components/presentation/CritiquePanel";
 import { CreativeDraftDiff } from "../components/presentation/CreativeDraftDiff";
+import { KeywordGraphPanel } from "../components/presentation/KeywordGraphPanel";
 import { MemoryResolutionPanel } from "../components/presentation/MemoryResolutionPanel";
 import { SourceFootnotes } from "../components/presentation/SourceFootnotes";
 import { StructuredData } from "../components/presentation/StructuredData";
 import {
   filterRows,
   normalizePlatform,
+  parseContentSchedule,
   rowsFromArtifact,
+  rowsFromCreativesFallback,
   type ContentScheduleArtifact,
   type ScheduleRow,
 } from "../lib/contentSchedule";
@@ -34,6 +37,7 @@ import {
   Sparkles,
   TrendingUp,
   Twitter,
+  Waypoints,
 } from "lucide-react";
 
 // ── Platform tab config ────────────────────────────────────────────────────────
@@ -362,13 +366,29 @@ export default function ContentOutputs() {
   const { artifacts, hydrateLoading, steps } = useCampaignStore();
   const [activeTab, setActiveTab] = useState<string>("instagram");
 
-  const cs = (artifacts as { content_schedule?: ContentScheduleArtifact }).content_schedule;
-  const rows = useMemo(() => rowsFromArtifact(cs || null), [cs]);
+  const csRaw = (artifacts as { content_schedule?: unknown }).content_schedule;
+  const cs: ContentScheduleArtifact | null =
+    parseContentSchedule(csRaw) ??
+    (csRaw !== null && typeof csRaw === "object" && !Array.isArray(csRaw) ? (csRaw as ContentScheduleArtifact) : null);
+  const originalCreatives = (artifacts as { original_creatives?: Record<string, unknown> }).original_creatives || {};
+  const refinedCreatives = (artifacts as { refined_creatives?: Record<string, unknown> }).refined_creatives || {};
+  const baseCreatives = (artifacts as { creatives?: Record<string, unknown> }).creatives || {};
+
+  const creativeBundleForFallback = useMemo(() => {
+    if (refinedCreatives && Object.keys(refinedCreatives).length > 0) return refinedCreatives;
+    if (baseCreatives && Object.keys(baseCreatives).length > 0) return baseCreatives;
+    if (originalCreatives && Object.keys(originalCreatives).length > 0) return originalCreatives;
+    return {};
+  }, [refinedCreatives, baseCreatives, originalCreatives]);
+
+  const rows = useMemo(() => {
+    const fromSchedule = rowsFromArtifact(cs || null);
+    if (fromSchedule.length > 0) return fromSchedule;
+    return rowsFromCreativesFallback(creativeBundleForFallback);
+  }, [cs, creativeBundleForFallback]);
   const imageUrls = ((artifacts as { image_urls?: string[] }).image_urls || []).filter(Boolean);
   const critique = (artifacts as { creative_critique?: Record<string, unknown> }).creative_critique;
   const critiquePost = (artifacts as { creative_critique_post_refine?: Record<string, unknown> }).creative_critique_post_refine;
-  const originalCreatives = (artifacts as { original_creatives?: Record<string, unknown> }).original_creatives || {};
-  const refinedCreatives = (artifacts as { refined_creatives?: Record<string, unknown> }).refined_creatives || {};
   const hadRefinement = Object.keys(refinedCreatives).length > 0;
   const memoryRes = (artifacts as { memory_resolution?: Record<string, unknown> }).memory_resolution;
   const seoWebsiteOpt = (artifacts as { seo_website_optimization?: Record<string, unknown> }).seo_website_optimization;
@@ -376,6 +396,10 @@ export default function ContentOutputs() {
   const { brandName, handle, igFollowers } = useBrandContext(artifacts as Record<string, unknown>);
 
   const tabSources = useMemo(() => collectSources(steps, (s) => sourceMatchers.creatives(s) || sourceMatchers.critic(s)), [steps]);
+  const kwGraphSources = useMemo(
+    () => collectSources(steps, (s) => sourceMatchers.keywordGraph(s)),
+    [steps]
+  );
   const showInitialQa = Boolean(critique && Object.keys(critique).length > 0);
   const showPostQa = Boolean(critiquePost && Object.keys(critiquePost).length > 0);
 
@@ -408,6 +432,20 @@ export default function ContentOutputs() {
     seoWebsiteOpt && typeof seoWebsiteOpt === "object" && Object.keys(seoWebsiteOpt).length > 0 && !(seoWebsiteOpt as { error?: unknown }).error;
   const deliveredSeo = (artifacts as Record<string, unknown>).seo;
   const deliveredSocial = (artifacts as Record<string, unknown>).social;
+
+  const kgraph = (artifacts as {
+    keyword_graph?: {
+      top_keywords?: { keyword: string; score: number }[];
+      clusters?: { id: number; keywords: string[] }[];
+      edges?: { source: string; target: string; weight?: number }[];
+      total_nodes?: number;
+      total_edges?: number;
+    };
+  }).keyword_graph;
+  const showKeywordGraph =
+    Boolean(kgraph?.top_keywords?.length) ||
+    Boolean(kgraph?.edges?.length) ||
+    (kgraph?.total_nodes ?? 0) > 0;
 
   return (
     <div className="min-h-screen w-full bg-gradient-to-b from-slate-50 to-white pb-20">
@@ -466,6 +504,31 @@ export default function ContentOutputs() {
         {/* ── Memory resolution ──────────────────────────────────────────────── */}
         {memoryRes && Object.keys(memoryRes).length > 0 && (
           <div className="mt-8"><MemoryResolutionPanel data={memoryRes} /></div>
+        )}
+
+        {/* ── Keyword graph (same engine as Performance — feeds copy & SEO) ─── */}
+        {showKeywordGraph && kgraph && (
+          <section className="mt-8 overflow-hidden rounded-2xl border border-indigo-200/90 bg-white shadow-md">
+            <div className="flex items-center gap-2 border-b border-indigo-100/90 bg-indigo-50/50 px-6 py-3">
+              <Waypoints size={18} className="text-indigo-600" />
+              <div>
+                <h2 className="font-display text-xs font-bold uppercase tracking-widest text-indigo-900">Keyword graph</h2>
+                <p className="text-[11px] text-indigo-800/80">PageRank-ranked terms from co-occurrence — aligns hooks and SEO with demand</p>
+              </div>
+            </div>
+            <div className="space-y-4 px-6 py-5">
+              <KeywordGraphPanel
+                top_keywords={kgraph.top_keywords}
+                clusters={kgraph.clusters}
+                edges={kgraph.edges}
+                total_nodes={kgraph.total_nodes}
+                total_edges={kgraph.total_edges}
+              />
+              <div className="border-t border-slate-100 pt-4">
+                <SourceFootnotes sources={kwGraphSources} />
+              </div>
+            </div>
+          </section>
         )}
 
         {/* ── SEO website section ───────────────────────────────────────────── */}

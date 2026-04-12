@@ -77,7 +77,7 @@ function CampaignSwitcher() {
                 <p className="text-[10px] text-slate-400">
                   {c.created_at ? new Date(c.created_at).toLocaleDateString() : "Recent"}
                   {" · "}
-                  {c.trace?.length || 0} steps
+                  {c.trace_step_count ?? c.trace?.length ?? 0} steps
                 </p>
               </div>
               {c.id === campaignId && <Check size={14} className="flex-shrink-0 text-indigo-600" />}

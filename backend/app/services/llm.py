@@ -5,11 +5,20 @@ from typing import Any
 
 from openai import AsyncOpenAI
 
+from app.config import get_settings
+from app.services.openai_rate_limit import run_with_rate_limit_retry
+
 # OpenAI requires the word "json" to appear in messages when using response_format json_object.
 _JSON_MODE_HINT = (
     "\n\nReply with a single valid JSON object only (no markdown). "
     "The response format is JSON."
 )
+
+
+def _clip(text: str, max_len: int) -> str:
+    if not text or len(text) <= max_len:
+        return text
+    return text[: max(0, max_len - 24)].rstrip() + "\n…[truncated]…"
 
 
 def usage_dict_from_chat_completion(response: Any, *, phase: str) -> dict[str, Any]:
@@ -56,16 +65,22 @@ async def chat_json_object(
     temperature: float = 0.2,
     phase: str = "unknown",
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    system_with_json = system.strip() + _JSON_MODE_HINT
-    r = await client.chat.completions.create(
-        model=model,
-        temperature=temperature,
-        messages=[
-            {"role": "system", "content": system_with_json},
-            {"role": "user", "content": user},
-        ],
-        response_format={"type": "json_object"},
-    )
+    s = get_settings()
+    system_c = _clip(system.strip(), s.llm_max_system_chars) + _JSON_MODE_HINT
+    user_c = _clip(user, s.llm_max_user_chars)
+
+    async def _call():
+        return await client.chat.completions.create(
+            model=model,
+            temperature=temperature,
+            messages=[
+                {"role": "system", "content": system_c},
+                {"role": "user", "content": user_c},
+            ],
+            response_format={"type": "json_object"},
+        )
+
+    r = await run_with_rate_limit_retry(_call, label=f"chat_json_object:{phase}")
     raw = r.choices[0].message.content or "{}"
     return json.loads(raw), usage_dict_from_chat_completion(r, phase=phase)
 
@@ -79,13 +94,20 @@ async def chat_text(
     temperature: float = 0.4,
     phase: str = "unknown",
 ) -> tuple[str, dict[str, Any]]:
-    r = await client.chat.completions.create(
-        model=model,
-        temperature=temperature,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-    )
+    s = get_settings()
+    system_c = _clip(system.strip(), s.llm_max_system_chars)
+    user_c = _clip(user, s.llm_max_user_chars)
+
+    async def _call():
+        return await client.chat.completions.create(
+            model=model,
+            temperature=temperature,
+            messages=[
+                {"role": "system", "content": system_c},
+                {"role": "user", "content": user_c},
+            ],
+        )
+
+    r = await run_with_rate_limit_retry(_call, label=f"chat_text:{phase}")
     text = (r.choices[0].message.content or "").strip()
     return text, usage_dict_from_chat_completion(r, phase=phase)

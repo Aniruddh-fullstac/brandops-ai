@@ -8,8 +8,9 @@ import { EmailPreview } from "../components/content/EmailPreview";
 import { VideoConceptCard } from "../components/content/VideoConceptCard";
 import { SourceFootnotes } from "../components/presentation/SourceFootnotes";
 import {
-  filterRows,
   normalizePlatform,
+  parseContentSchedule,
+  platformSectionsFromRows,
   rowsFromArtifact,
   type ContentScheduleArtifact,
   type ScheduleRow,
@@ -149,15 +150,7 @@ function PlatformPostsForDay({
   brandName: string;
   artifacts: Record<string, unknown>;
 }) {
-  const byPlatform = useMemo(() => {
-    const m = new Map<string, ScheduleRow[]>();
-    for (const r of rows) {
-      const p = normalizePlatform(r.platform);
-      if (!m.has(p)) m.set(p, []);
-      m.get(p)!.push(r);
-    }
-    return m;
-  }, [rows]);
+  const sections = useMemo(() => platformSectionsFromRows(rows), [rows]);
 
   const imageUrls = ((artifacts as { image_urls?: string[] }).image_urls || []).filter(Boolean);
   const videoCreatives = (artifacts as { video_concepts?: { concepts?: unknown[] } }).video_concepts;
@@ -167,73 +160,88 @@ function PlatformPostsForDay({
     return <p className="text-sm text-slate-400 italic">No scheduled posts for this date.</p>;
   }
 
-  const order = ["instagram", "linkedin", "twitter", "whatsapp", "email", "video", "push_notification", "blog"];
-
   return (
     <div className="space-y-10">
-      {order.map((pid) => {
-        const pRows = byPlatform.get(pid);
-        if (!pRows || pRows.length === 0) return null;
+      {sections.map(({ platform: pid, rows: pRows }) => (
+        <div key={pid}>
+          <div className="mb-4 flex items-center gap-2">
+            <div className={`h-2.5 w-2.5 rounded-full ${CH_DOT[pid] || "bg-slate-400"}`} />
+            <h4 className="font-display text-sm font-bold text-slate-800">{CH_LABEL[pid] || pid}</h4>
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+              {pRows.length}
+            </span>
+          </div>
 
-        return (
-          <div key={pid}>
-            <div className="mb-4 flex items-center gap-2">
-              <div className={`h-2.5 w-2.5 rounded-full ${CH_DOT[pid] || "bg-slate-400"}`} />
-              <h4 className="font-display text-sm font-bold text-slate-800">{CH_LABEL[pid] || pid}</h4>
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
-                {pRows.length}
-              </span>
-            </div>
-
-            <div className={`flex flex-col gap-6 ${
-              pid === "instagram" ? "sm:flex-row sm:flex-wrap" : ""
-            }`}>
-              {pid === "instagram" && pRows.map((row, i) => (
-                <div key={row.id || i} className="w-full max-w-sm">
-                  <InstagramPost row={row} brandName={brandName} index={i} />
-                </div>
-              ))}
-              {pid === "twitter" && pRows.map((row, i) => (
-                <TwitterPost key={row.id || i} row={row} brandName={brandName} index={i} />
-              ))}
-              {pid === "linkedin" && pRows.map((row, i) => (
-                <LinkedInPost key={row.id || i} row={row} brandName={brandName} index={i} />
-              ))}
-              {pid === "whatsapp" && pRows.map((row, i) => (
-                <div key={row.id || i} className="w-full max-w-sm">
-                  <WhatsAppMessage row={row} brandName={brandName} index={i} />
-                </div>
-              ))}
-              {pid === "email" && pRows.map((row, i) => (
-                <EmailPreview key={row.id || i} row={row} brandName={brandName} index={i} />
-              ))}
-              {pid === "video" && (
-                <>
-                  {videoConcepts.length > 0
-                    ? videoConcepts.slice(0, pRows.length).map((c, i) => (
-                        <VideoConceptCard key={i} concept={c} index={i} imageUrls={imageUrls} />
-                      ))
-                    : pRows.map((row, i) => (
-                        <div key={row.id || i} className="rounded-2xl border border-rose-100 bg-rose-50/40 p-5">
-                          {row.headline && <h4 className="font-bold text-slate-900">{row.headline}</h4>}
-                          {row.caption && <p className="mt-2 text-sm text-slate-700">{row.caption}</p>}
-                        </div>
-                      ))}
-                </>
-              )}
-              {(pid === "push_notification" || pid === "blog") && pRows.map((row, i) => (
-                <div key={row.id || i} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                  {row.headline && <p className="font-semibold text-slate-900">{row.headline}</p>}
+          <div className={`flex flex-col gap-6 ${
+            pid === "instagram" ? "sm:flex-row sm:flex-wrap" : ""
+          }`}>
+            {pid === "instagram" && pRows.map((row, i) => (
+              <div key={row.id || i} className="w-full max-w-sm">
+                <InstagramPost row={row} brandName={brandName} index={i} />
+              </div>
+            ))}
+            {pid === "twitter" && pRows.map((row, i) => (
+              <TwitterPost key={row.id || i} row={row} brandName={brandName} index={i} />
+            ))}
+            {pid === "linkedin" && pRows.map((row, i) => (
+              <LinkedInPost key={row.id || i} row={row} brandName={brandName} index={i} />
+            ))}
+            {pid === "whatsapp" && pRows.map((row, i) => (
+              <div key={row.id || i} className="w-full max-w-sm">
+                <WhatsAppMessage row={row} brandName={brandName} index={i} />
+              </div>
+            ))}
+            {pid === "email" && pRows.map((row, i) => (
+              <EmailPreview key={row.id || i} row={row} brandName={brandName} index={i} />
+            ))}
+            {pid === "video" && (
+              <>
+                {videoConcepts.length > 0
+                  ? videoConcepts.slice(0, pRows.length).map((c, i) => (
+                      <VideoConceptCard key={i} concept={c} index={i} imageUrls={imageUrls} />
+                    ))
+                  : pRows.map((row, i) => (
+                      <div key={row.id || i} className="rounded-2xl border border-rose-100 bg-rose-50/40 p-5">
+                        {row.headline && <h4 className="font-bold text-slate-900">{row.headline}</h4>}
+                        {row.caption && <p className="mt-2 text-sm text-slate-700">{row.caption}</p>}
+                      </div>
+                    ))}
+              </>
+            )}
+            {(pid === "push_notification" || pid === "blog") && pRows.map((row, i) => (
+              <div key={row.id || i} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                {row.headline && <p className="font-semibold text-slate-900">{row.headline}</p>}
+                {row.caption && <p className="mt-1.5 text-sm text-slate-700">{row.caption}</p>}
+                {row.push_title && <p className="font-semibold text-slate-900">{row.push_title}</p>}
+                {row.push_body && <p className="mt-1 text-sm text-slate-600">{row.push_body}</p>}
+                {row.cta && <p className="mt-2 text-xs font-semibold text-indigo-700">CTA: {row.cta}</p>}
+              </div>
+            ))}
+            {![
+              "instagram", "linkedin", "twitter", "whatsapp", "email", "video",
+              "push_notification", "blog",
+            ].includes(pid) &&
+              pRows.map((row, i) => (
+                <div
+                  key={row.id || i}
+                  className="rounded-xl border border-slate-200 border-dashed bg-slate-50/80 p-4 shadow-sm"
+                >
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                    {CH_LABEL[pid] || pid}
+                  </p>
+                  {row.headline && <p className="mt-1 font-semibold text-slate-900">{row.headline}</p>}
                   {row.caption && <p className="mt-1.5 text-sm text-slate-700">{row.caption}</p>}
                   {row.push_title && <p className="font-semibold text-slate-900">{row.push_title}</p>}
                   {row.push_body && <p className="mt-1 text-sm text-slate-600">{row.push_body}</p>}
                   {row.cta && <p className="mt-2 text-xs font-semibold text-indigo-700">CTA: {row.cta}</p>}
+                  {!row.headline && !row.caption && !row.push_title && !row.push_body && (
+                    <p className="mt-1 text-sm italic text-slate-500">No copy on this row yet.</p>
+                  )}
                 </div>
               ))}
-            </div>
           </div>
-        );
-      })}
+        </div>
+      ))}
     </div>
   );
 }
@@ -507,7 +515,10 @@ function DayPanel({
 export default function CampaignCalendar() {
   const { artifacts, hydrateLoading, steps } = useCampaignStore();
 
-  const cs = (artifacts as { content_schedule?: ContentScheduleArtifact }).content_schedule;
+  const csRaw = (artifacts as { content_schedule?: unknown }).content_schedule;
+  const cs: ContentScheduleArtifact | null =
+    parseContentSchedule(csRaw) ??
+    (csRaw !== null && typeof csRaw === "object" && !Array.isArray(csRaw) ? (csRaw as ContentScheduleArtifact) : null);
   const scheduleRows = useMemo(() => rowsFromArtifact(cs || null), [cs]);
   const calendar = (artifacts as { campaign_calendar?: CalData }).campaign_calendar;
   const summary = calendar?.summary;

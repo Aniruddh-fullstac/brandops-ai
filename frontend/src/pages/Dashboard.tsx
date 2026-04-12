@@ -38,7 +38,7 @@ export default function Dashboard() {
           { label: "Running", value: campaigns.filter((c) => c.status === "running").length, icon: BarChart3, color: "amber" },
           {
             label: "Agents Used",
-            value: latest?.trace?.length || 0,
+            value: latest?.trace_step_count ?? latest?.trace?.length ?? 0,
             icon: Rocket,
             color: "purple",
           },
@@ -119,7 +119,8 @@ export default function Dashboard() {
                     )}
                   </div>
                   <p className="text-xs text-slate-500">
-                    {c.created_at ? new Date(c.created_at).toLocaleDateString() : "Recent"} · {c.trace?.length || 0} agent
+                    {c.created_at ? new Date(c.created_at).toLocaleDateString() : "Recent"} ·{" "}
+                    {c.trace_step_count ?? c.trace?.length ?? 0} agent
                     steps
                   </p>
                 </div>

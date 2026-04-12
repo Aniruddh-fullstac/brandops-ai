@@ -1,8 +1,8 @@
-"""Map social platforms to DALL·E 3 sizes (1024x1024 | 1024x1792 | 1792x1024) and human-readable specs."""
+"""Map platforms to aspect buckets (1024x1024 | 1024x1792 | 1792x1024) for Pix hints and UI labels."""
 
 from __future__ import annotations
 
-# OpenAI image API accepts exactly these three for dall-e-3
+# Stable tokens used with ``aspect_hint_for_http`` for Pranav Pix prompts
 DalleSize = str
 
 
@@ -14,7 +14,7 @@ def normalize_platform_key(platform: str | None) -> str:
 
 def dalle_size_and_label(platform: str | None) -> tuple[DalleSize, str]:
     """
-    Return (openai_size, display_label_for_ui).
+    Return (aspect_token, display_label_for_ui).
     Portrait: Stories/Reels/TikTok-style vertical.
     Landscape: LinkedIn/Twitter/blog headers.
     """

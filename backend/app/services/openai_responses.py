@@ -6,6 +6,7 @@ from typing import Any
 from openai import AsyncOpenAI
 
 from app.config import Settings
+from app.services.openai_rate_limit import run_with_rate_limit_retry
 
 
 def usage_dict_from_responses(response: Any, *, phase: str) -> dict[str, Any]:
@@ -126,14 +127,22 @@ async def run_responses_web_research(
     Single-shot Responses API call with built-in web search tool.
     Returns packet and a usage dict (same shape as chat completions, for token rollups).
     """
-    m = model or settings.openai_model
+    # Web search + synthesis: prefer fast model by default (override with `model=` if needed).
+    m = model or settings.openai_model_fast
     tools = [_tool_spec(settings)]
-    try:
-        response = await client.responses.create(
+
+    async def _create(tool_list: list[dict[str, Any]]) -> Any:
+        return await client.responses.create(
             model=m,
             instructions=instructions,
             input=user_input,
-            tools=tools,
+            tools=tool_list,
+        )
+
+    try:
+        response = await run_with_rate_limit_retry(
+            lambda: _create(tools),
+            label=f"responses_web:{phase}",
         )
     except Exception:
         # Retry with alternate tool name if account expects the other variant
@@ -142,10 +151,8 @@ async def run_responses_web_research(
             if tools[0]["type"] == "web_search_preview"
             else {"type": "web_search_preview"}
         )
-        response = await client.responses.create(
-            model=m,
-            instructions=instructions,
-            input=user_input,
-            tools=[alt],
+        response = await run_with_rate_limit_retry(
+            lambda: _create([alt]),
+            label=f"responses_web_alt:{phase}",
         )
     return _extract_from_response(response), usage_dict_from_responses(response, phase=phase)

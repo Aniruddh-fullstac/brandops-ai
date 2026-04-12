@@ -8,6 +8,55 @@ function issueSeverityClass(sev: string | undefined) {
   return "border-slate-200 bg-slate-50/80";
 }
 
+const CHANNEL_SCORE_LABEL: Record<string, string> = {
+  seo: "SEO & editorial",
+  social: "Social (all channels)",
+  video_concepts: "Video concepts",
+  messaging_whatsapp: "WhatsApp messaging",
+  instagram: "Instagram",
+  linkedin: "LinkedIn",
+  twitter: "X / Twitter",
+  email: "Email",
+  whatsapp: "WhatsApp",
+};
+
+function coerceScoreNumber(v: unknown): number | null {
+  if (typeof v === "number" && !Number.isNaN(v)) return v;
+  if (typeof v === "string" && v.trim()) {
+    const n = parseFloat(v.trim().replace(/,/g, ""));
+    return Number.isNaN(n) ? null : n;
+  }
+  return null;
+}
+
+/** Prefer normalized 0–100 scores; accept raw `scores` with string numbers; flatten one level of nesting. */
+function extractChannelScores(critique: Record<string, unknown>): Record<string, number> {
+  const tryDict = (d: unknown): Record<string, number> => {
+    const out: Record<string, number> = {};
+    if (!d || typeof d !== "object" || Array.isArray(d)) return out;
+    for (const [k, v] of Object.entries(d)) {
+      if (v != null && typeof v === "object" && !Array.isArray(v)) {
+        for (const [k2, v2] of Object.entries(v as Record<string, unknown>)) {
+          const n = coerceScoreNumber(v2);
+          if (n != null) out[`${k}.${k2}`] = Math.min(100, Math.max(0, n));
+        }
+        continue;
+      }
+      const n = coerceScoreNumber(v);
+      if (n != null) out[k] = Math.min(100, Math.max(0, n));
+    }
+    return out;
+  };
+
+  const norm = critique.scores_normalized;
+  if (norm && typeof norm === "object" && !Array.isArray(norm)) {
+    const o = tryDict(norm);
+    if (Object.keys(o).length > 0) return o;
+  }
+  const raw = critique.scores;
+  return tryDict(raw);
+}
+
 type QaMetadata = {
   rubric_confidence?: number;
   blended_confidence?: number;
@@ -20,13 +69,13 @@ type QaMetadata = {
 };
 
 export function CritiquePanel({ critique }: { critique: Record<string, unknown> }) {
-  const scores = critique.scores as Record<string, number> | undefined;
+  const scoresFlat = extractChannelScores(critique);
   const issues = critique.issues as { channel?: string; severity?: string; fix?: string }[] | undefined;
   const directives = critique.revision_directives as string[] | undefined;
   const verdict = critique.final_verdict as string | undefined;
   const qaMeta = critique.qa_metadata as QaMetadata | undefined;
 
-  const scoreEntries = scores ? Object.entries(scores) : [];
+  const scoreEntries = Object.entries(scoresFlat);
   const avg =
     scoreEntries.length > 0
       ? Math.round(scoreEntries.reduce((a, [, v]) => a + Number(v), 0) / scoreEntries.length)
@@ -108,14 +157,17 @@ export function CritiquePanel({ critique }: { critique: Record<string, unknown> 
           <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
             {scoreEntries.map(([ch, sc]) => {
               const n = Math.min(100, Math.max(0, Number(sc)));
+              const label = CHANNEL_SCORE_LABEL[ch] || ch.replace(/_/g, " ");
               return (
                 <div
                   key={ch}
                   className="rounded-xl border border-slate-100 bg-slate-50/50 p-4 shadow-sm"
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-semibold capitalize text-slate-800">{ch}</span>
-                    <span className="text-lg font-bold tabular-nums text-slate-900">{sc}</span>
+                    <span className="text-xs font-semibold text-slate-800 capitalize" title={ch}>
+                      {label}
+                    </span>
+                    <span className="text-lg font-bold tabular-nums text-slate-900">{Math.round(n)}</span>
                   </div>
                   <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200/80">
                     <div

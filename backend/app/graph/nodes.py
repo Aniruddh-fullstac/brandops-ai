@@ -1394,13 +1394,13 @@ async def node_seo_website_optimizer(
     )
     structured, u_seo_chat = await chat_json_object(
         client=client,
-        model=settings.openai_model,
+        model=settings.openai_model_fast,
         system=schema,
         user=(
             "Primary evidence — live web research synthesis (ground major recommendations here):\n"
-            + (pkt.text or "")[:16_000]
+            + (pkt.text or "")[:10_000]
             + "\n\nBrand and site context:\n"
-            + ctx[:8000]
+            + ctx[:6000]
         ),
         temperature=0.2,
         phase="seo_website",
@@ -1455,12 +1455,12 @@ async def node_strategy(state: CampaignState, *, client: AsyncOpenAI, settings: 
         "timeline_phases (array of {name, focus, duration_days}), "
         "measurement (object), reasoning_trace (array of {decision, because})."
     )
-    user = ctx + "\n\nGrounding research digest:\n" + digest[:18_000]
+    user = ctx + "\n\nGrounding research digest:\n" + digest[:12_000]
     seo_w = state.get("seo_website_optimization") or {}
     if seo_w and isinstance(seo_w, dict) and not seo_w.get("error"):
         user += (
             "\n\nWebsite SEO findings (from live web research + brand context — align SEO/channel priorities):\n"
-            + str(seo_w)[:7000]
+            + str(seo_w)[:4000]
         )
     _emit_live(state, _act(phase="strategy", agent="campaign_strategy_architect", action="llm_call",
                            detail=f"Building go-to-market strategy for {r.brand_name}", tool=settings.openai_model))
@@ -1504,7 +1504,7 @@ async def _creative_json(
         client=client,
         model=settings.openai_model,
         system=role + " " + system_schema,
-        user=user_blob[:24_000],
+        user=user_blob[:16_000],
         temperature=0.55,
         phase=phase,
     )
@@ -1694,7 +1694,7 @@ async def node_critic(state: CampaignState, *, client: AsyncOpenAI, settings: Se
     )
     critique_raw, u_crit = await chat_json_object(
         client=client,
-        model=settings.openai_model,
+        model=settings.openai_model_fast,
         system=(
             "You are a skeptical creative director + brand lawyer lite. "
             "Score the creative bundle for consistency with strategy, research, and brand safety. "
@@ -1709,9 +1709,9 @@ async def node_critic(state: CampaignState, *, client: AsyncOpenAI, settings: Se
         user=(
             build_node_context(state)
             + "\nStrategy:\n"
-            + str(state.get("strategy"))[:8000]
+            + str(state.get("strategy"))[:5000]
             + "\nCreatives:\n"
-            + str(state.get("creatives"))[:12_000]
+            + str(state.get("creatives"))[:8000]
         ),
         temperature=0.25,
         phase="critic",
@@ -1758,7 +1758,7 @@ async def node_refine(state: CampaignState, *, client: AsyncOpenAI, settings: Se
     )
     refined_raw, u_ref = await chat_json_object(
         client=client,
-        model=settings.openai_model,
+        model=settings.openai_model_fast,
         system=(
             "You are a senior copywriter. Revise the campaign creatives using the critic directives. "
             "Return JSON with REQUIRED top-level keys: seo, social, video_concepts, messaging_whatsapp — each fully revised object "
@@ -1768,8 +1768,8 @@ async def node_refine(state: CampaignState, *, client: AsyncOpenAI, settings: Se
             "Do not rename keys; do not move channel payloads under a nested wrapper."
         ),
         user=(
-            "Critique:\n" + str(critique)[:8000]
-            + "\nBase creatives to revise:\n" + str(base)[:12_000]
+            "Critique:\n" + str(critique)[:5000]
+            + "\nBase creatives to revise:\n" + str(base)[:8000]
         ),
         temperature=0.4,
         phase="refine",
@@ -1830,7 +1830,7 @@ async def node_critic_recheck(state: CampaignState, *, client: AsyncOpenAI, sett
     )
     critique2_raw, u_crec = await chat_json_object(
         client=client,
-        model=settings.openai_model,
+        model=settings.openai_model_fast,
         system=(
             "You are a skeptical creative director + brand lawyer lite. "
             "Score the REFINED creative JSON for consistency with strategy and research. "
@@ -1843,9 +1843,9 @@ async def node_critic_recheck(state: CampaignState, *, client: AsyncOpenAI, sett
         user=(
             build_node_context(state)
             + "\nStrategy:\n"
-            + str(state.get("strategy"))[:8000]
+            + str(state.get("strategy"))[:5000]
             + "\nRefined creatives:\n"
-            + str(refined)[:12_000]
+            + str(refined)[:8000]
         ),
         temperature=0.25,
         phase="critic_recheck",
@@ -2244,7 +2244,7 @@ async def node_content_schedule(state: CampaignState, *, client: AsyncOpenAI, se
     strat = state.get("strategy") or {}
     out, u_cs = await chat_json_object(
         client=client,
-        model=settings.openai_model,
+        model=settings.openai_model_fast,
         system=(
             "You are a senior campaign editor. Merge the 30-day calendar with channel creatives into ONE executable plan. "
             "Return JSON only:\n"
@@ -2275,13 +2275,13 @@ async def node_content_schedule(state: CampaignState, *, client: AsyncOpenAI, se
         user=(
             f"Brand: {r.brand_name}\nGeos: {r.geography_primary} / {r.geography_secondary}\n\n"
             "campaign_calendar:\n"
-            + str(cal)[:14_000]
+            + str(cal)[:9000]
             + "\n\ncreatives:\n"
-            + str(creatives)[:18_000]
+            + str(creatives)[:10_000]
             + "\n\nlocalized:\n"
-            + str(localized)[:8000]
+            + str(localized)[:5000]
             + "\n\nchannel_plan:\n"
-            + str(strat.get("channel_plan"))[:4000]
+            + str(strat.get("channel_plan"))[:2500]
         ),
         temperature=0.35,
         phase="content_schedule",
@@ -2346,7 +2346,7 @@ async def node_localize(state: CampaignState, *, client: AsyncOpenAI, settings: 
     creatives_to_use = state.get("refined_creatives") or state.get("creatives") or {}
     localized, u_loc = await chat_json_object(
         client=client,
-        model=settings.openai_model,
+        model=settings.openai_model_fast,
         system=(
             "You localize a full marketing bundle. Return JSON with keys "
             f"`{r.geography_primary}` and `{r.geography_secondary}` each containing "
@@ -2355,11 +2355,11 @@ async def node_localize(state: CampaignState, *, client: AsyncOpenAI, settings: 
         ),
         user=(
             "Strategy:\n"
-            + str(state.get("strategy"))[:6000]
+            + str(state.get("strategy"))[:4000]
             + "\nCreatives:\n"
-            + str(creatives_to_use)[:8000]
+            + str(creatives_to_use)[:6000]
             + "\nCritique:\n"
-            + str(state.get("critique_post_refine") or state.get("critique") or {})[:4000]
+            + str(state.get("critique_post_refine") or state.get("critique") or {})[:2500]
         ),
         temperature=0.45,
         phase="localize",
@@ -2396,14 +2396,14 @@ async def node_visuals(state: CampaignState, *, client: AsyncOpenAI, settings: S
             phase="visual",
             agent="visual_design",
             action="analyzing",
-            detail="Drafting DALL·E prompts from strategy + creatives",
+            detail="Drafting image prompts from strategy + creatives (rendered via Pranav Pix)",
         ),
     )
     prompts_obj, u_vis = await chat_json_object(
         client=client,
         model=settings.openai_model_fast,
         system=(
-            "Return JSON {prompts: array of distinct short DALL·E prompts for campaign key art, "
+            "Return JSON {prompts: array of distinct short image prompts for campaign key art, "
             f"at least 3 and up to {max(3, settings.max_image_variants)} items, different angles or formats."
         ),
         user="Strategy + social hooks:\n"
@@ -2423,7 +2423,7 @@ async def node_visuals(state: CampaignState, *, client: AsyncOpenAI, settings: S
             progress=f"0/{len(prompts)}",
         ),
     )
-    urls = await generate_campaign_images(client=client, settings=settings, prompts=prompts)
+    urls = await generate_campaign_images(settings=settings, prompts=prompts)
     rid = str(state.get("run_id") or "").strip()
     if urls and rid:
         persisted = await persist_remote_images(urls=urls, run_id=rid, settings=settings)
@@ -2672,7 +2672,7 @@ async def node_schedule_post_images(
     async def _render_one(job: tuple[str, int, str, str, str]) -> tuple[str, int, str | None, str, str, str] | None:
         row_id, pi, prompt, dsize, label = job
         async with sem:
-            url = await generate_one_image(client=client, settings=settings, prompt=prompt, size=dsize)
+            url = await generate_one_image(settings=settings, prompt=prompt, size=dsize)
             if not url:
                 return None
             final_u = url
@@ -2714,7 +2714,7 @@ async def node_schedule_post_images(
             agent="post_visual_generator",
             phase="visual",
             title="Per-post social visuals",
-            summary=f"Generated images for {generated_rows} schedule row(s); sizes follow platform norms (DALL·E 3 buckets).",
+            summary=f"Generated images for {generated_rows} schedule row(s); aspect hints follow platform norms (Pranav Pix).",
             reasoning="Portrait for vertical platforms; landscape for LinkedIn/X/blog; square for email/push.",
             structured={"images_total": len(all_urls), "rows_touched": generated_rows},
         ),

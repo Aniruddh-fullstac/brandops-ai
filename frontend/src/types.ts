@@ -64,6 +64,8 @@ export type CampaignRecord = {
   status: string;
   request: Record<string, unknown>;
   trace?: TraceStep[];
+  /** Denormalized count for list views (avoids loading full trace). */
+  trace_step_count?: number;
   artifacts?: Artifacts;
   created_at?: string;
   llm_token_usage?: LlmTokenUsage | null;

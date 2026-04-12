@@ -115,21 +115,21 @@ async def route_query(
         artifacts = campaign_context.get("artifacts", {})
         context_parts = []
         if artifacts.get("executive_summary"):
-            context_parts.append(f"Executive Summary: {str(artifacts['executive_summary'])[:500]}")
+            context_parts.append(f"Executive Summary: {str(artifacts['executive_summary'])[:320]}")
         if artifacts.get("positioning"):
-            context_parts.append(f"Positioning: {json.dumps(artifacts['positioning'], default=str)[:400]}")
+            context_parts.append(f"Positioning: {json.dumps(artifacts['positioning'], default=str)[:240]}")
         if artifacts.get("competitor_landscape"):
-            context_parts.append(f"Competitor Landscape: {json.dumps(artifacts['competitor_landscape'], default=str)[:400]}")
+            context_parts.append(f"Competitor Landscape: {json.dumps(artifacts['competitor_landscape'], default=str)[:240]}")
         if artifacts.get("audience_and_messaging"):
-            context_parts.append(f"Audience & Messaging: {json.dumps(artifacts['audience_and_messaging'], default=str)[:400]}")
+            context_parts.append(f"Audience & Messaging: {json.dumps(artifacts['audience_and_messaging'], default=str)[:240]}")
         if artifacts.get("memory_resolution"):
-            context_parts.append(f"Memory / conflict resolution: {json.dumps(artifacts['memory_resolution'], default=str)[:400]}")
+            context_parts.append(f"Memory / conflict resolution: {json.dumps(artifacts['memory_resolution'], default=str)[:240]}")
         if artifacts.get("channel_strategy"):
-            context_parts.append(f"Channel Strategy: {json.dumps(artifacts['channel_strategy'], default=str)[:300]}")
+            context_parts.append(f"Channel Strategy: {json.dumps(artifacts['channel_strategy'], default=str)[:200]}")
         if artifacts.get("seo"):
-            context_parts.append(f"SEO: {json.dumps(artifacts['seo'], default=str)[:300]}")
+            context_parts.append(f"SEO: {json.dumps(artifacts['seo'], default=str)[:200]}")
         if artifacts.get("social"):
-            context_parts.append(f"Social: {json.dumps(artifacts['social'], default=str)[:300]}")
+            context_parts.append(f"Social: {json.dumps(artifacts['social'], default=str)[:200]}")
         if context_parts:
             context_summary = "\n\n--- EXISTING CAMPAIGN KNOWLEDGE BASE ---\n" + "\n".join(context_parts)
 
@@ -187,7 +187,7 @@ Return JSON with:
 
         answer, _u_kb = await chat_text(
             client=client,
-            model=settings.openai_model,
+            model=settings.openai_model_fast,
             system=f"""You are a marketing intelligence assistant. Answer the user's question using the campaign
 knowledge base below. Be specific, data-driven, and actionable. Format with markdown.
 {context_summary}""",
@@ -221,8 +221,7 @@ knowledge base below. Be specific, data-driven, and actionable. Format with mark
 {brand_ctx}
 {context_summary}
 
-Provide a thorough, data-driven analysis. Use markdown formatting. Include specific findings,
-numbers, and actionable recommendations. Be concise but comprehensive."""
+Be concise. Use markdown. Prioritize specific facts, numbers, and actionable bullets over length."""
 
         user_input = f"""Query: {query}
 
@@ -280,24 +279,26 @@ Research this topic thoroughly. Provide specific findings with evidence and sour
             "status": "Combining insights from all agents...",
         })
 
+        def _trim_out(text: str, cap: int = 4500) -> str:
+            t = text or ""
+            return t if len(t) <= cap else t[: cap - 40] + "\n…[agent output trimmed]…"
+
         agent_findings = "\n\n".join(
-            f"## {r['agent_name']} Findings:\n{r['output']}" for r in agent_outputs
+            f"## {r['agent_name']} Findings:\n{_trim_out(str(r.get('output') or ''))}" for r in agent_outputs
         )
 
         final_answer, _u_syn = await chat_text(
             client=client,
-            model=settings.openai_model,
+            model=settings.openai_model_fast,
             system=f"""You are a senior marketing strategist synthesizing research from multiple specialist agents.
-Provide a cohesive, actionable answer. Use markdown. Highlight key insights, data points, and recommendations.
-Structure with clear sections. Be specific and strategic.
+Provide a cohesive, actionable answer. Use markdown. Be concise — prioritize insights and actions over length.
 {context_summary}""",
             user=f"""Original question: {query}
 
 Agent findings:
 {agent_findings}
 
-Synthesize these findings into a comprehensive, well-structured answer.
-Include key takeaways and specific action items.""",
+Synthesize into a clear answer with key takeaways and action items (avoid repetition).""",
             phase="chat",
         )
 
@@ -318,8 +319,8 @@ Include key takeaways and specific action items.""",
         # No agents selected, try a direct answer
         answer, _u_direct = await chat_text(
             client=client,
-            model=settings.openai_model,
-            system="You are a marketing intelligence assistant. Provide helpful, actionable advice.",
+            model=settings.openai_model_fast,
+            system="You are a marketing intelligence assistant. Provide helpful, actionable advice. Be concise.",
             user=query,
             phase="chat",
         )
