@@ -10,19 +10,20 @@ import {
   Bell,
   Shield,
   LogOut,
-  Sparkles,
   QrCode,
   ChevronDown,
   Check,
   MessageSquare,
+  UserCircle,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { useCampaignStore } from "./CampaignStore";
 import { useState } from "react";
 
 const NAV = [
-  { to: "/", icon: LayoutDashboard, label: "Dashboard" },
+  { to: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
   { to: "/ask", icon: MessageSquare, label: "Ask Agents" },
+  { to: "/profile", icon: UserCircle, label: "Brand profile" },
   { to: "/campaign/new", icon: Rocket, label: "New Campaign" },
   { to: "/insights", icon: BarChart3, label: "Market Insights" },
   { to: "/competitors", icon: Swords, label: "Competitors" },
@@ -95,12 +96,14 @@ export default function Layout() {
     <div className="flex h-screen min-h-0 overflow-hidden bg-[#f4f6fb]">
       <aside className="hidden h-full min-h-0 w-64 shrink-0 flex-col border-r border-slate-200 bg-white lg:flex">
         <div className="flex items-center gap-2.5 border-b border-slate-100 px-5 py-5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-600 to-teal-500 text-white">
-            <Sparkles size={18} />
-          </div>
+          <img
+            src="/assets/logo-knowyourbrand.png"
+            alt=""
+            className="h-9 w-9 rounded-xl object-cover shadow-sm ring-1 ring-slate-200/80"
+          />
           <div>
-            <p className="font-display text-sm font-bold tracking-tight text-slate-900">CampaignGraph</p>
-            <p className="text-[10px] text-slate-400">AI Creative Engine</p>
+            <p className="font-display text-sm font-bold tracking-tight text-slate-900">KnowYourBrand</p>
+            <p className="text-[10px] text-slate-400">AI marketing intelligence</p>
           </div>
         </div>
 
@@ -112,7 +115,7 @@ export default function Layout() {
             <NavLink
               key={n.to}
               to={n.to}
-              end={n.to === "/"}
+              end={n.to === "/dashboard"}
               className={({ isActive }) =>
                 `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
                   isActive
@@ -152,15 +155,15 @@ export default function Layout() {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <header className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 py-3 lg:hidden">
           <div className="flex items-center gap-2">
-            <Sparkles size={18} className="text-indigo-600" />
-            <span className="font-display text-sm font-bold text-slate-900">CampaignGraph</span>
+            <img src="/assets/logo-knowyourbrand.png" alt="" className="h-8 w-8 rounded-lg object-cover" />
+            <span className="font-display text-sm font-bold text-slate-900">KnowYourBrand</span>
           </div>
           <div className="flex gap-2 overflow-x-auto">
             {NAV.slice(0, 5).map((n) => (
               <NavLink
                 key={n.to}
                 to={n.to}
-                end={n.to === "/"}
+                end={n.to === "/dashboard"}
                 className={({ isActive }) =>
                   `rounded-lg px-2 py-1 text-[10px] font-medium ${
                     isActive ? "bg-indigo-100 text-indigo-700" : "text-slate-500"

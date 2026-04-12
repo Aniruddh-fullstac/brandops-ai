@@ -205,32 +205,39 @@ function AgentResultCard({ result, defaultOpen = false }: { result: AgentResult;
         </div>
       </button>
 
-      {/* Expanded body */}
+      {/* Source links — always visible so findings stay citable without expanding */}
+      {result.sources && result.sources.length > 0 && (
+        <div className="px-3 pb-2">
+          <p className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold mb-1">Sources</p>
+          <div className="flex flex-wrap gap-1">
+            {result.sources.map((s, i) => {
+              let hostname = "";
+              try { hostname = new URL(s.url).hostname; } catch { hostname = s.url; }
+              const label = (s.title && s.title.trim()) || hostname;
+              return (
+                <a
+                  key={`${s.url}-${i}`}
+                  href={s.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={s.url}
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-white/80 rounded text-[10px] text-slate-500 hover:text-indigo-600 border border-slate-200/60 hover:border-indigo-200 transition-colors truncate max-w-[min(100%,220px)]"
+                >
+                  <ExternalLink size={7} className="flex-shrink-0" />
+                  <span className="truncate">{label}</span>
+                </a>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Expanded body — full agent output */}
       {open && (
         <div className="px-3 pb-3 border-t border-slate-200/50">
           <div className="mt-2 max-h-[280px] overflow-y-auto thin-scroll pr-1">
             {renderMarkdown(output)}
           </div>
-          {result.sources && result.sources.length > 0 && (
-            <div className="flex flex-wrap gap-1 mt-2 pt-2 border-t border-slate-200/40">
-              {result.sources.slice(0, 4).map((s, i) => {
-                let hostname = "";
-                try { hostname = new URL(s.url).hostname; } catch { hostname = s.url; }
-                return (
-                  <a
-                    key={i}
-                    href={s.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-white/80 rounded text-[10px] text-slate-400 hover:text-indigo-600 border border-slate-200/60 hover:border-indigo-200 transition-colors truncate max-w-[150px]"
-                  >
-                    <ExternalLink size={7} className="flex-shrink-0" />
-                    {s.title || hostname}
-                  </a>
-                );
-              })}
-            </div>
-          )}
         </div>
       )}
     </div>

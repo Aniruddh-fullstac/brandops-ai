@@ -1,6 +1,5 @@
-import { Sparkles } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
-import { Navigate } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 
 export default function Login() {
   const { user, loading, signIn } = useAuth();
@@ -13,18 +12,23 @@ export default function Login() {
     );
   }
 
-  if (user) return <Navigate to="/" replace />;
+  if (user) return <Navigate to="/dashboard" replace />;
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-[#f4f6fb] via-indigo-50/40 to-teal-50/30">
-      <div className="mx-4 w-full max-w-md space-y-8 rounded-3xl border border-slate-200 bg-white p-10 shadow-lg">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-[#f4f6fb] via-indigo-50/40 to-teal-50/30 px-4 py-8">
+      <Link to="/" className="mb-6 text-sm font-medium text-slate-500 transition hover:text-indigo-600">
+        ← Back to KnowYourBrand
+      </Link>
+      <div className="w-full max-w-md space-y-8 rounded-3xl border border-slate-200 bg-white p-10 shadow-lg">
         <div className="text-center">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-600 to-teal-500 text-white shadow-lg">
-            <Sparkles size={28} />
-          </div>
-          <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900">CampaignGraph</h1>
+          <img
+            src="/assets/logo-knowyourbrand.png"
+            alt=""
+            className="mx-auto mb-4 h-16 w-16 rounded-2xl object-cover shadow-lg ring-1 ring-slate-200/80"
+          />
+          <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900">KnowYourBrand</h1>
           <p className="mt-2 text-sm text-slate-600">
-            AI-powered multi-agent marketing engine. Sign in to access your brand dashboard.
+            AI-powered marketing intelligence. Sign in to access your brand dashboard.
           </p>
         </div>
         <button

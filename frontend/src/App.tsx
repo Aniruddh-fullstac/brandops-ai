@@ -5,6 +5,7 @@ import Layout from "./components/Layout";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import NewCampaign from "./pages/NewCampaign";
+import BrandProfile from "./pages/BrandProfile";
 import MarketInsights from "./pages/MarketInsights";
 import CompetitorAnalysis from "./pages/CompetitorAnalysis";
 import ContentOutputs from "./pages/ContentOutputs";
@@ -16,6 +17,7 @@ import AskAgent from "./pages/AskAgent";
 import OfflineCampaigns from "./pages/OfflineCampaigns";
 import OfflineCampaignAnalytics from "./pages/OfflineCampaignAnalytics";
 import PublicOfflineLanding from "./pages/PublicOfflineLanding";
+import Landing from "./pages/Landing";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -36,6 +38,7 @@ export default function App() {
       <AuthProvider>
         <CampaignStoreProvider>
           <Routes>
+            <Route path="/" element={<Landing />} />
             <Route path="/login" element={<Login />} />
             <Route path="/p/:slug" element={<PublicOfflineLanding />} />
             <Route
@@ -45,8 +48,9 @@ export default function App() {
                 </RequireAuth>
               }
             >
-              <Route index element={<Dashboard />} />
+              <Route path="/dashboard" element={<Dashboard />} />
               <Route path="campaign/new" element={<NewCampaign />} />
+              <Route path="profile" element={<BrandProfile />} />
               <Route path="insights" element={<MarketInsights />} />
               <Route path="competitors" element={<CompetitorAnalysis />} />
               <Route path="content" element={<ContentOutputs />} />

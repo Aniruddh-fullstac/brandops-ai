@@ -2300,95 +2300,20 @@ async def node_content_schedule(state: CampaignState, *, client: AsyncOpenAI, se
     }
 
 
-def _performance_sim_grounding_context(state: CampaignState) -> str:
-    """Evidence for reach/engagement sim: calendar cadence, IG history, research, trends, search demand."""
-    parts: list[str] = []
-    cal = state.get("campaign_calendar") or {}
-    if isinstance(cal, dict):
-        summ = cal.get("summary")
-        if summ:
-            parts.append(
-                "=== 30-DAY CAMPAIGN CALENDAR (includes by_channel counts + timing_reasoning from IG history) ===\n"
-                + json.dumps(summ, default=str)[:7000]
-            )
-
-    parts.append(
-        "=== RESEARCH DIGEST (competitors, social listening, market trends — use for growth/momentum assumptions) ===\n"
-        + _research_digest(state)[:9000]
-    )
-
-    reddit = state.get("reddit_snapshot") or {}
-    if isinstance(reddit, dict) and (reddit.get("posts") or reddit.get("query")):
-        parts.append("=== REDDIT (interest / volume proxy) ===\n" + json.dumps(reddit, default=str)[:2800])
-
-    kgw = state.get("keyword_graph") or {}
-    if isinstance(kgw, dict) and kgw:
-        slim = {
-            "top_keywords": (kgw.get("top_keywords") or [])[:25],
-            "total_nodes": kgw.get("total_nodes"),
-            "total_edges": kgw.get("total_edges"),
-        }
-        parts.append("=== KEYWORD GRAPH (search demand proxy) ===\n" + json.dumps(slim, default=str)[:3500])
-
-    aud = state.get("audience_segments") or {}
-    if isinstance(aud, dict) and aud:
-        parts.append("=== AUDIENCE SEGMENTS (addressable interest) ===\n" + json.dumps(aud, default=str)[:3500])
-
-    return "\n\n".join(parts)
-
-
 async def node_performance_sim(state: CampaignState, *, client: AsyncOpenAI, settings: Settings) -> dict[str, Any]:
-    """Simulated performance projections per channel, grounded in calendar + past analysis + trends."""
+    """Simulated performance projections via Ridge regression (no LLM) — see app.services.performance_ml."""
+    from app.services.performance_ml import predict_performance_sim
+
     _emit_live(
         state,
         _act(
             phase="performance",
             agent="performance_simulator",
-            action="llm_call",
-            detail="Estimating 30-day reach from IG/competitor baselines, calendar cadence, and trend research",
+            action="ml_predict",
+            detail="NumPy Ridge regression on calendar + Instagram + keyword/reddit features (no GPT)",
         ),
     )
-    grounding = _performance_sim_grounding_context(state)
-    strat = state.get("strategy") or {}
-    creatives_use = state.get("refined_creatives") or state.get("creatives") or {}
-    sim, u_perf = await chat_json_object(
-        client=client,
-        model=settings.openai_model_fast,
-        system=(
-            "You simulate the NEXT 30 DAYS of marketing performance for this brand. "
-            "You MUST ground numbers in the evidence block: brand/competitor Instagram metrics (followers, avg engagement), "
-            "calendar total_events and by_channel counts, timing_reasoning (data-driven posting windows), "
-            "market/trend narratives, Reddit/keyword demand proxies, and audience segments. "
-            "If Instagram follower count exists, use it to sanity-check organic reach (reach is often a fraction of followers × posts; "
-            "impressions can exceed reach). If evidence is thin, lower confidence and say so in methodology. "
-            "Apply monthly/trend context from trends_research and social_research (seasonality, category momentum, headwinds). "
-            "Return JSON only with keys:\n"
-            "grounding_summary (string — 2-4 sentences on which signals drove the model),\n"
-            "past_performance_signals (object: e.g. instagram_followers, avg_likes_if_known, engagement_proxy_pct, "
-            "competitor_benchmark_note, calendar_total_events — use nulls if unknown),\n"
-            "monthly_trend_notes (string — how trends/monthly seasonality adjusted the outlook),\n"
-            "channels (array of objects, one per major channel in the calendar or strategy): "
-            "name, impressions_estimate (number, 30-day), estimated_reach_30d (number, unique accounts reached), "
-            "reach_methodology (string — formula-style explanation using followers/cadence/ER), "
-            "engagement_rate (number 0-100), engagement_rate_basis (string — tie to past IG or industry bench), "
-            "click_through_rate (number 0-100), estimated_leads (number), "
-            "confidence (string: low|medium|high), methodology (string — one sentence),\n"
-            "overall_projected_reach (number, sum or deduped narrative reach across channels — state assumption), "
-            "overall_projected_impressions (number, optional sum of impressions_estimate),\n"
-            "key_risks (array of strings), optimization_suggestions (array of strings), reasoning_summary (string)."
-        ),
-        user=(
-            build_node_context(state)
-            + "\nStrategy excerpt:\n"
-            + str(strat)[:4500]
-            + "\nCreatives excerpt (volume/intensity proxy):\n"
-            + str(creatives_use)[:5000]
-            + "\n\nEVIDENCE FOR PROJECTIONS:\n"
-            + grounding[:22_000]
-        ),
-        temperature=0.25,
-        phase="performance",
-    )
+    sim = predict_performance_sim(state)
     return {
         **_trace_step(
             agent="performance_simulator",
@@ -2396,13 +2321,13 @@ async def node_performance_sim(state: CampaignState, *, client: AsyncOpenAI, set
             title="Campaign performance simulation",
             summary=sim.get("reasoning_summary"),
             reasoning=(
-                "Reach and impressions estimated from calendar cadence, brand/competitor Instagram baselines, "
-                "timing optimizer signals, and trend/research narratives — see grounding_summary."
+                "Reach and impressions from multi-output Ridge regression (NumPy) trained on heuristic-aligned synthetic data; "
+                "features from calendar cadence, brand/competitor Instagram metrics, keyword graph, and Reddit snapshot — "
+                "see grounding_summary."
             ),
             structured=sim,
         ),
         "performance_sim": sim,
-        **_usage_events(u_perf),
     }
 
 
