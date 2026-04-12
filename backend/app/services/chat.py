@@ -31,8 +31,8 @@ AGENT_REGISTRY = [
         "id": "social_intel",
         "name": "Social Media Intelligence",
         "icon": "share-2",
-        "description": "Analyzes Reddit discussions, platform-native tactics on LinkedIn/Instagram/TikTok/YouTube, engagement patterns and influencer trends.",
-        "triggers": ["social media", "reddit", "linkedin", "instagram", "tiktok", "youtube", "influencer", "engagement", "viral", "content strategy", "hashtag"],
+        "description": "Analyzes Reddit discussions, platform-native tactics on LinkedIn/Instagram/YouTube, engagement patterns and influencer trends.",
+        "triggers": ["social media", "reddit", "linkedin", "instagram", "youtube", "influencer", "engagement", "viral", "content strategy", "hashtag"],
     },
     {
         "id": "market_trends",

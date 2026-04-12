@@ -21,7 +21,6 @@ const CH_COLORS: Record<string, string> = {
   linkedin: "bg-blue-100 text-blue-800",
   instagram: "bg-pink-100 text-pink-800",
   twitter: "bg-slate-800 text-white",
-  tiktok: "bg-violet-100 text-violet-800",
   blog: "bg-emerald-100 text-emerald-800",
   email: "bg-amber-100 text-amber-800",
   whatsapp: "bg-green-100 text-green-800",

@@ -7,15 +7,19 @@ export function InsightSection({
   subtitle,
   icon: Icon,
   children,
-  sources,
+  sources = [],
   accent = "indigo",
+  showFooterSources = false,
 }: {
   title: string;
   subtitle?: string;
   icon: React.ElementType;
   children: ReactNode;
-  sources: SourceRef[];
+  /** Optional when citations are inline in children only. */
+  sources?: SourceRef[];
   accent?: "indigo" | "teal" | "violet" | "amber";
+  /** When false, citations are expected inline in children (e.g. InsightFlow). */
+  showFooterSources?: boolean;
 }) {
   const bar =
     accent === "teal"
@@ -40,9 +44,11 @@ export function InsightSection({
           </div>
         </div>
         <div className="mt-5">{children}</div>
-        <div className="mt-5 border-t border-slate-100 pt-4">
-          <SourceFootnotes sources={sources} />
-        </div>
+        {showFooterSources && (
+          <div className="mt-5 border-t border-slate-100 pt-4">
+            <SourceFootnotes sources={sources} />
+          </div>
+        )}
       </div>
     </div>
   );

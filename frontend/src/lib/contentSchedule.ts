@@ -30,7 +30,6 @@ export const PLATFORM_ORDER = [
   "instagram",
   "linkedin",
   "twitter",
-  "tiktok",
   "email",
   "whatsapp",
   "push_notification",
@@ -42,7 +41,6 @@ export const PLATFORM_LABEL: Record<string, string> = {
   instagram: "Instagram",
   linkedin: "LinkedIn",
   twitter: "X (Twitter)",
-  tiktok: "TikTok",
   email: "Email",
   whatsapp: "WhatsApp",
   push_notification: "Push notifications",
@@ -53,7 +51,9 @@ export const PLATFORM_LABEL: Record<string, string> = {
 
 export function normalizePlatform(p: string | undefined): string {
   if (!p) return "other";
-  return String(p).toLowerCase().trim().replace(/\s+/g, "_");
+  const s = String(p).toLowerCase().trim().replace(/\s+/g, "_");
+  if (s === "tiktok") return "video";
+  return s;
 }
 
 export function rowsFromArtifact(cs: ContentScheduleArtifact | undefined | null): ScheduleRow[] {

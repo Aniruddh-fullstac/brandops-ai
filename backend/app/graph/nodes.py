@@ -330,7 +330,7 @@ async def _social_agent(state: CampaignState, client: AsyncOpenAI, settings: Set
     digest = {"query": reddit_q, "posts": reddit_posts, "error": reddit_err}
     instructions = (
         "You are a social listening strategist. Use web search to find how similar brands show up on "
-        "LinkedIn, Instagram, TikTok, YouTube, and community forums. Identify hooks, formats, and "
+        "LinkedIn, Instagram, YouTube, and community forums. Identify hooks, formats, and "
         "creator patterns that drive engagement. Cross-check with the Reddit snapshot provided."
     )
     user = (
@@ -1073,11 +1073,11 @@ async def node_creative_suite(state: CampaignState, *, client: AsyncOpenAI, sett
             "Return JSON: linkedin (array of posts with hook, body, cta), "
             "instagram (array of {idea, caption, hashtags, format, visual_direction, reasoning — "
             "  reasoning must cite brand Instagram data and competitor gaps}), "
-            "tiktok_or_reels (array of {hook, beat_sheet, on_screen_text}), "
+            "reels_short_form (array of {hook, beat_sheet, on_screen_text}), "
             "twitter (array of {text, hashtags}), "
             "email_broadcasts (array of {subject, preheader, body}), "
             "push_notifications (array of {title, body, trigger_context}), "
-            "segment_variants (array of {segment_name, linkedin, instagram, twitter, tiktok_or_reels, "
+            "segment_variants (array of {segment_name, linkedin, instagram, twitter, reels_short_form, "
             "  hook_angle, tone_notes} — one entry per audience segment from the brief; tailor hooks and tone), "
             "reasoning_summary (must reference Instagram sentiment, competitor gaps, segments, and memory guardrails)."
         ),
@@ -1272,29 +1272,111 @@ async def node_critic_recheck(state: CampaignState, *, client: AsyncOpenAI, sett
     }
 
 
+def _audience_grounding_evidence(state: CampaignState) -> str:
+    """Real signals already in graph state — Reddit, research packets, IG — not just the LLM inventing personas."""
+    parts: list[str] = []
+    max_chars = 4500
+
+    reddit = state.get("reddit_snapshot") or {}
+    if isinstance(reddit, dict) and reddit:
+        parts.append("=== REDDIT (community language, subreddits) ===")
+        parts.append(f"Query: {reddit.get('query', '')}")
+        if reddit.get("error"):
+            parts.append(f"(fetch note: {reddit['error']})")
+        for p in (reddit.get("posts") or [])[:6]:
+            if not isinstance(p, dict):
+                continue
+            title = (p.get("title") or "")[:200]
+            sub = p.get("subreddit") or ""
+            st = (p.get("selftext") or "")[:400]
+            parts.append(f"- r/{sub}: {title}")
+            if st.strip():
+                parts.append(f"  {st}")
+
+    soc_pkt = state.get("social_research") or {}
+    if isinstance(soc_pkt, dict):
+        nar = (soc_pkt.get("narrative") or "")[:2200]
+        soc_st = soc_pkt.get("structured") if isinstance(soc_pkt.get("structured"), dict) else {}
+        if nar.strip() or soc_st:
+            parts.append("\n=== SOCIAL / WEB LISTENING ===")
+            if nar.strip():
+                parts.append(nar)
+            rs = soc_st.get("reasoning_summary")
+            if rs:
+                parts.append(f"Structured summary: {rs}")
+
+    comp_pkt = state.get("competitor_research") or {}
+    comp_st = comp_pkt.get("structured") if isinstance(comp_pkt.get("structured"), dict) else {}
+    if comp_st:
+        ws = comp_st.get("white_space_opportunities") or []
+        risks = comp_st.get("risks") or []
+        if ws or risks:
+            parts.append("\n=== COMPETITIVE (from research JSON) ===")
+            if ws:
+                parts.append("White space: " + "; ".join(str(x) for x in ws[:6]))
+            if risks:
+                parts.append("Risks: " + "; ".join(str(x) for x in risks[:6]))
+
+    trends_pkt = state.get("trends_research") or {}
+    if isinstance(trends_pkt, dict):
+        tn = (trends_pkt.get("narrative") or "")[:1400]
+        if tn.strip():
+            parts.append("\n=== MARKET TRENDS (excerpt) ===\n" + tn)
+
+    b_ig = state.get("brand_instagram_analysis") or {}
+    if isinstance(b_ig, dict) and b_ig.get("handle"):
+        sent = b_ig.get("sentiment") or {}
+        praised = sent.get("top_praised_aspects") or sent.get("positive_themes") or []
+        complaints = sent.get("top_complaints") or []
+        lang = sent.get("audience_language_patterns") or []
+        parts.append("\n=== BRAND INSTAGRAM COMMENT SIGNALS ===")
+        if praised:
+            parts.append("Praised: " + "; ".join(str(x) for x in praised[:6]))
+        if complaints:
+            parts.append("Complaints: " + "; ".join(str(x) for x in complaints[:5]))
+        if lang:
+            parts.append("Language patterns: " + "; ".join(str(x) for x in lang[:6]))
+
+    blob = "\n".join(parts)
+    if len(blob) > max_chars:
+        return blob[:max_chars] + "\n…"
+    return blob
+
+
 async def node_audience_segments(state: CampaignState, *, client: AsyncOpenAI, settings: Settings) -> dict[str, Any]:
-    """LLM-backed audience segmentation: 2-3 segments with tailored messaging."""
+    """Audience segments: LLM synthesis grounded in Reddit, research packets, and Instagram when available."""
     _emit_live(
         state,
         _act(
             phase="audience",
             agent="audience_segmentation",
             action="llm_call",
-            detail="Building 2–3 audience micro-segments with hooks and channel fit",
+            detail="Grounding 2–3 segments in Reddit + research + Instagram signals (not brief-only)",
         ),
     )
+    grounding = _audience_grounding_evidence(state)
+    user_blob = (
+        build_node_context(state)
+        + "\nStrategy:\n"
+        + str(state.get("strategy"))[:6000]
+    )
+    if grounding.strip():
+        user_blob += (
+            "\n\n--- Evidence to ground segments (use language and tensions from here when relevant) ---\n"
+            + grounding
+        )
     segments = await chat_json_object(
         client=client,
         model=settings.openai_model_fast,
         system=(
-            "Segment the brand audience into 2-3 distinct groups. Return JSON: "
+            "Segment the brand audience into 2-3 distinct groups. "
+            "When the evidence block is present, tie each segment to real tensions, language, or gaps "
+            "from Reddit, social listening, competitors, trends, or Instagram comments — not generic platitudes. "
+            "Return JSON: "
             "segments (array of {name, description, jobs_to_be_done, pain_points, "
             "preferred_channels, tone_notes, sample_hook}), reasoning_summary."
         ),
-        user=(
-            build_node_context(state)
-            + "\nStrategy:\n" + str(state.get("strategy"))[:6000]
-        ),
+        user=user_blob,
         temperature=0.35,
     )
     return {
@@ -1303,7 +1385,10 @@ async def node_audience_segments(state: CampaignState, *, client: AsyncOpenAI, s
             phase="audience",
             title="Audience micro-segmentation",
             summary=segments.get("reasoning_summary"),
-            reasoning="Maps distinct personas to channel affinity for targeted content delivery.",
+            reasoning=(
+                "Segments synthesize strategy with live signals when available: Reddit posts, social/trends research, "
+                "competitive JSON, and brand Instagram comment themes — still LLM-structured, but evidence-grounded."
+            ),
             structured=segments,
         ),
         "audience_segments": segments,
@@ -1407,49 +1492,98 @@ async def node_keyword_graph(state: CampaignState, *, client: AsyncOpenAI, setti
 
 
 async def node_timing(state: CampaignState, *, client: AsyncOpenAI, settings: Settings) -> dict[str, Any]:
-    """Deterministic: 30-day campaign calendar optimizer."""
+    """Data-driven 30-day campaign calendar.
+
+    Instagram posting windows are derived from engagement-weighted timestamps
+    of real brand + competitor posts (log-scale scoring, sentiment boost).
+    All other channels fall back to category baselines when no data is available.
+    """
     from app.services.timing_optimizer import build_campaign_calendar
 
+    # ── resolve channel list from strategy ────────────────────────────────
+    strat = state.get("strategy") or {}
+    channels: list[str] = []
+    for ch_item in (strat.get("channel_plan") or []):
+        if isinstance(ch_item, dict) and ch_item.get("channel"):
+            raw = str(ch_item["channel"]).lower().strip()
+            channels.append("video" if raw == "tiktok" else raw)
+    if not channels:
+        channels = ["linkedin", "instagram", "twitter", "blog", "email",
+                    "whatsapp", "push_notification", "seo", "video"]
+
+    # ── pull brand / competitor Instagram data from state ─────────────────
+    brand_ig: dict | None = state.get("brand_instagram_analysis") or None
+    comp_ig_raw = state.get("competitor_instagram_analysis") or {}
+
+    # competitor_instagram_analysis has the shape produced by _competitor_instagram_agent:
+    # { competitors_found, raw_data (list of per-competitor dicts with all_posts), analysis }
+    comp_ig: dict | None = comp_ig_raw if comp_ig_raw else None
+
+    # ── sentiment signal from brand IG ────────────────────────────────────
+    sentiment_signal: dict | None = None
+    if brand_ig and isinstance(brand_ig, dict):
+        sentiment_signal = brand_ig.get("sentiment") or None
+
+    # ── live log ──────────────────────────────────────────────────────────
+    brand_posts_n = len((brand_ig or {}).get("all_posts") or []) if brand_ig else 0
+    comp_posts_n  = sum(
+        len(c.get("all_posts") or c.get("top_posts_with_comments") or [])
+        for c in ((comp_ig or {}).get("raw_data") or [])
+        if isinstance(c, dict)
+    )
     _emit_live(
         state,
         _act(
             phase="timing",
             agent="campaign_timing_optimizer",
-            action="configuring",
-            detail="Building 30-day channel calendar from strategy timeline",
+            action="analyzing",
+            detail=(
+                f"Scoring posting windows from {brand_posts_n} brand posts + {comp_posts_n} competitor posts "
+                f"(engagement-weighted, log-scale). Falling back to category defaults where needed."
+            ),
         ),
     )
-    strat = state.get("strategy") or {}
-    channels = []
-    for ch_item in (strat.get("channel_plan") or []):
-        if isinstance(ch_item, dict) and ch_item.get("channel"):
-            channels.append(str(ch_item["channel"]).lower().strip())
-    if not channels:
-        channels = [
-            "linkedin",
-            "instagram",
-            "twitter",
-            "tiktok",
-            "blog",
-            "email",
-            "whatsapp",
-            "push_notification",
-            "seo",
-            "video",
-        ]
 
     calendar = build_campaign_calendar(
         channels=channels,
         phases=strat.get("timeline_phases"),
+        brand_ig=brand_ig,
+        competitor_ig=comp_ig,
+        sentiment_signal=sentiment_signal,
     )
+
+    tr = calendar["summary"].get("timing_reasoning") or {}
+    override = tr.get("instagram_overridden", False)
+    ig_days  = tr.get("instagram_best_days",  [])
+    ig_hours = tr.get("instagram_best_hours", [])
+    summary_line = (
+        f"{calendar['summary']['total_events']} events over {calendar['summary']['duration_days']} days "
+        f"({len(channels)} channels). "
+        + (
+            f"Instagram windows data-driven: {ig_days} at {ig_hours} "
+            f"({tr.get('brand_posts_used', 0)} brand + {tr.get('competitor_posts_used', 0)} competitor posts)."
+            if override else
+            "Instagram using category defaults (no post timestamps available)."
+        )
+    )
+
     return {
         **_trace_step(
             agent="campaign_timing_optimizer",
             phase="timing",
-            title="30-day campaign calendar",
-            summary=f"{calendar['summary']['total_events']} events across {len(channels)} channels over {calendar['summary']['duration_days']} days.",
-            reasoning="Deterministic scheduler — no LLM. Aligns channel cadence to optimal posting windows.",
-            structured=calendar.get("summary"),
+            title="Data-driven 30-day campaign calendar",
+            summary=summary_line,
+            reasoning=(
+                "Instagram best_days/best_hours derived from engagement-weighted (log-scale) post timestamps "
+                "of brand + competitor accounts. Sentiment boost applied when positive rate ≥ 50%. "
+                "Other channels use category baselines. " +
+                " ".join(str(d) for d in (tr.get("details") or []) if d)
+            ),
+            structured={
+                "total_events": calendar["summary"]["total_events"],
+                "by_channel": calendar["summary"]["by_channel"],
+                "timing_reasoning": tr,
+            },
         ),
         "campaign_calendar": calendar,
     }
@@ -1478,7 +1612,7 @@ async def node_content_schedule(state: CampaignState, *, client: AsyncOpenAI, se
             "You are a senior campaign editor. Merge the 30-day calendar with channel creatives into ONE executable plan. "
             "Return JSON only:\n"
             "  overview: string (short paragraph on publishing rhythm for leadership).\n"
-            "  platforms: object with keys exactly: instagram, linkedin, twitter, tiktok, email, whatsapp, "
+            "  platforms: object with keys exactly: instagram, linkedin, twitter, email, whatsapp, "
             "push_notification, blog, video. Each value is an array of objects with fields: "
             "scheduled_at (ISO 8601 datetime), headline, caption, hashtags (array of strings), cta, format, "
             "target_segment (string or null), "
@@ -1489,7 +1623,7 @@ async def node_content_schedule(state: CampaignState, *, client: AsyncOpenAI, se
             "  timeline: flat array of the same row shape plus id (string like cs_001), target_segment (string or null — "
             "audience segment name when the post is tailored to a segment from creatives.social.segment_variants), "
             "sorted by scheduled_at ascending. "
-            "Include at least 28 rows across instagram, linkedin, twitter, tiktok, email, whatsapp, push_notification, blog. "
+            "Include at least 28 rows across instagram, linkedin, twitter, email, whatsapp, push_notification, blog, video. "
             "Use campaign_calendar days + event times to build scheduled_at. "
             "Adapt copy from creatives JSON; align tone with localized cultural notes when present. "
             "When segment_variants exist, distribute posts across segments (not all posts need a segment; use null when broad). "
