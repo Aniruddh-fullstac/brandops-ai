@@ -16,10 +16,13 @@ def slugify(text: str) -> str:
 
 
 class OfflineCampaignCreate(BaseModel):
+    """When `source_campaign_id` is set, the client ties this QR bundle to the main (agent) campaign selected in the app."""
+
     title: str = Field(..., min_length=2, max_length=120)
     headline: str = Field("", max_length=200)
     description: str = Field("", max_length=2000)
     brand_name: str = Field("", max_length=120)
+    source_campaign_id: str = Field("", max_length=80)
     promo_image_urls: list[str] = Field(default_factory=list, max_length=12)
     product_options: list[str] = Field(
         default_factory=list,

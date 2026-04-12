@@ -464,9 +464,6 @@ export default function ContentOutputs() {
 
   const showSeoWebsite =
     seoWebsiteOpt && typeof seoWebsiteOpt === "object" && Object.keys(seoWebsiteOpt).length > 0 && !(seoWebsiteOpt as { error?: unknown }).error;
-  const deliveredSeo = (artifacts as Record<string, unknown>).seo;
-  const deliveredSocial = (artifacts as Record<string, unknown>).social;
-
   const kgraph = (artifacts as {
     keyword_graph?: {
       top_keywords?: { keyword: string; score: number }[];

@@ -199,6 +199,11 @@ async def offline_campaign_create(body: OfflineCampaignCreate, request: Request)
     if not uid:
         raise HTTPException(status_code=401, detail="Unauthorized")
     payload = body.model_dump(mode="json")
+    scid = (payload.get("source_campaign_id") or "").strip()
+    if scid:
+        payload["source_campaign_id"] = scid
+    else:
+        payload.pop("source_campaign_id", None)
     cid, slug = await fb.save_offline_campaign(uid, payload)
     c = await fb.get_offline_campaign(cid)
     if c is None:

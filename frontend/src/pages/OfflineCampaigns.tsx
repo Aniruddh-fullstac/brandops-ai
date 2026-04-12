@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   BarChart3,
@@ -15,6 +15,8 @@ import {
   Users,
 } from "lucide-react";
 import { apiBlob, apiJson } from "../lib/api";
+import { useCampaignStore } from "../components/CampaignStore";
+import { buildOfflinePrefillFromCampaign } from "../lib/offlinePrefill";
 
 type OfflineRow = {
   id: string;
@@ -30,6 +32,8 @@ type OfflineRow = {
   landing_url?: string;
   default_qr_location?: string;
   created_at?: string;
+  /** Main (agent) campaign this QR bundle was created from, if any */
+  source_campaign_id?: string;
 };
 
 type Analytics = {
@@ -70,26 +74,33 @@ function BarRow({ label, count, max }: { label: string; count: number; max: numb
   );
 }
 
+const EMPTY_FORM = {
+  title: "",
+  headline: "",
+  description: "",
+  brand_name: "",
+  promo_image_urls: "",
+  product_options: "Limited drop, Core line, Collab, Accessories",
+  interest_tags: "Streetwear, Sustainability, Tech, Travel",
+  default_qr_location: "",
+  status: "active" as "draft" | "active",
+};
+
 export default function OfflineCampaigns() {
+  const { campaignId, campaignList, artifacts } = useCampaignStore();
   const [campaigns, setCampaigns] = useState<OfflineRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<OfflineRow | null>(null);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
 
-  const [showCreate, setShowCreate] = useState(false);
+  /** null | from-global (minimal) | standalone (full form) */
+  const [createModal, setCreateModal] = useState<null | "from-global" | "standalone">(null);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({
-    title: "",
-    headline: "",
-    description: "",
-    brand_name: "",
-    promo_image_urls: "",
-    product_options: "Limited drop, Core line, Collab, Accessories",
-    interest_tags: "Streetwear, Sustainability, Tech, Travel",
-    default_qr_location: "",
-    status: "active" as "draft" | "active",
-  });
+  const [form, setForm] = useState({ ...EMPTY_FORM });
+
+  const lastCampaignId = useRef<string | null | undefined>(undefined);
+  const hadCampaigns = useRef(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -106,6 +117,46 @@ export default function OfflineCampaigns() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  /** When the global (header) campaign changes, or offline list first loads, select the QR row linked to it. */
+  useEffect(() => {
+    const cid = campaignId ?? null;
+    const globalSwitched = lastCampaignId.current !== cid;
+    lastCampaignId.current = cid;
+
+    const listJustLoaded = !hadCampaigns.current && campaigns.length > 0;
+    hadCampaigns.current = campaigns.length > 0;
+
+    if (!cid || !campaigns.length) return;
+    const linked = campaigns.find((c) => c.source_campaign_id === cid);
+    if (!linked) return;
+    if (globalSwitched || listJustLoaded) setSelected(linked);
+  }, [campaigns, campaignId]);
+
+  const mainCampaign = campaignList.find((c) => c.id === campaignId);
+
+  const openStandaloneModal = () => {
+    setForm({ ...EMPTY_FORM });
+    setCreateModal("standalone");
+  };
+
+  const openFromGlobalModal = () => {
+    if (!campaignId) return;
+    const pre = buildOfflinePrefillFromCampaign(mainCampaign, artifacts);
+    setForm({ ...pre, default_qr_location: "", status: "active" });
+    setCreateModal("from-global");
+  };
+
+  /** Prefer existing QR for the selected main campaign; otherwise open the minimal create dialog. */
+  const ensureQrForCurrentCampaign = () => {
+    if (!campaignId) return;
+    const linked = campaigns.find((c) => c.source_campaign_id === campaignId);
+    if (linked) {
+      setSelected(linked);
+      return;
+    }
+    openFromGlobalModal();
+  };
 
   const loadAnalytics = useCallback(async (id: string) => {
     setAnalyticsLoading(true);
@@ -134,6 +185,8 @@ export default function OfflineCampaigns() {
         .filter(Boolean);
       const product_options = form.product_options.split(",").map((s) => s.trim()).filter(Boolean);
       const interest_tags = form.interest_tags.split(",").map((s) => s.trim()).filter(Boolean);
+      const linkMain =
+        createModal === "from-global" && campaignId ? { source_campaign_id: campaignId } : {};
       const res = await apiJson<{ id: string; slug: string; landing_url: string; campaign: OfflineRow }>(
         "/api/offline/campaigns",
         {
@@ -152,21 +205,12 @@ export default function OfflineCampaigns() {
             collect_age_range: true,
             status: form.status,
             default_qr_location: form.default_qr_location.trim() || undefined,
+            ...linkMain,
           }),
         }
       );
-      setShowCreate(false);
-      setForm({
-        title: "",
-        headline: "",
-        description: "",
-        brand_name: "",
-        promo_image_urls: "",
-        product_options: "Limited drop, Core line, Collab, Accessories",
-        interest_tags: "Streetwear, Sustainability, Tech, Travel",
-        default_qr_location: "",
-        status: "active",
-      });
+      setCreateModal(null);
+      setForm({ ...EMPTY_FORM });
       await refresh();
       setSelected({ ...res.campaign, id: res.id, slug: res.slug, landing_url: res.landing_url });
     } finally {
