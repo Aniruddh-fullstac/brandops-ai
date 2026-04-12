@@ -16,15 +16,19 @@ import { Maximize2, Minimize2, Network } from "lucide-react";
 type Props = {
   graphNodesDone: Set<string>;
   busy: boolean;
+  /** All graph nodes finished (server may still be persisting). */
+  pipelineGraphComplete?: boolean;
   steps: TraceStep[];
   activities: AgentActivity[];
   onExpand: () => void;
 };
 
-export function MindWebMini({ graphNodesDone, busy, steps, activities, onExpand }: Props) {
+export function MindWebMini({ graphNodesDone, busy, pipelineGraphComplete, steps, activities, onExpand }: Props) {
   const [expanded, setExpanded] = useState(false);
   const doneCnt = GRAPH_PIPELINE.filter((n) => graphNodesDone.has(n.id)).length;
   const hasCampaign = doneCnt > 0;
+  const graphComplete =
+    pipelineGraphComplete ?? (GRAPH_PIPELINE.length > 0 && doneCnt === GRAPH_PIPELINE.length);
 
   const activeNodeIds = useMemo(
     () => getActiveNodeIdsFromSteps(steps, graphNodesDone),
@@ -78,7 +82,11 @@ export function MindWebMini({ graphNodesDone, busy, steps, activities, onExpand 
         <div className="flex-1 min-w-0">
           <p className="text-xs font-bold text-slate-800">Agent Network</p>
           <p className="text-[10px] text-slate-400">
-            {busy ? `${doneCnt}/${GRAPH_PIPELINE.length} running...` : `${doneCnt}/${GRAPH_PIPELINE.length} completed`}
+            {busy && !graphComplete
+              ? `${doneCnt}/${GRAPH_PIPELINE.length} running...`
+              : busy && graphComplete
+                ? `${doneCnt}/${GRAPH_PIPELINE.length} finalizing...`
+                : `${doneCnt}/${GRAPH_PIPELINE.length} completed`}
           </p>
         </div>
         <div className="flex items-center gap-2">

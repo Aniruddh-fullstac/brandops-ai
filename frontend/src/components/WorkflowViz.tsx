@@ -8,11 +8,14 @@ type Props = {
   graphNodesDone: Set<string>;
   steps: TraceStep[];
   runId: string | null;
+  /** True when every pipeline node has emitted `graph_node_finished` (graph work done; server may still be saving). */
+  pipelineGraphComplete?: boolean;
 };
 
-export function WorkflowViz({ busy, graphNodesDone, steps }: Props) {
+export function WorkflowViz({ busy, graphNodesDone, steps, pipelineGraphComplete }: Props) {
   const total = GRAPH_PIPELINE.length;
   const doneCnt = GRAPH_PIPELINE.filter((n) => graphNodesDone.has(n.id)).length;
+  const graphComplete = pipelineGraphComplete ?? (total > 0 && doneCnt === total);
   const pct = total > 0 ? Math.round((doneCnt / total) * 100) : 0;
   const activePhases = new Set(
     steps.filter((s) => !graphNodesDone.has(s.phase)).map((s) => s.phase)
@@ -29,10 +32,16 @@ export function WorkflowViz({ busy, graphNodesDone, steps }: Props) {
         >
           <span className={`transition-transform ${expanded ? "rotate-90" : ""}`}>&#9654;</span>
           Pipeline
-          {busy && (
+          {busy && !graphComplete && (
             <span className="ml-1 flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-600">
               <Loader2 size={9} className="animate-spin" />
               Running
+            </span>
+          )}
+          {busy && graphComplete && (
+            <span className="ml-1 flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+              <Loader2 size={9} className="animate-spin" />
+              Finalizing
             </span>
           )}
           {!busy && doneCnt === total && total > 0 && (

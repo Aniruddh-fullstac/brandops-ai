@@ -35,6 +35,13 @@ class Settings(BaseSettings):
         le=120,
         description="Cap total generated images for scheduled posts (cost control).",
     )
+    image_generation_concurrency: int = Field(
+        12,
+        alias="IMAGE_GENERATION_CONCURRENCY",
+        ge=1,
+        le=32,
+        description="Parallel OpenAI/HTTP image requests (async). Lower if you hit rate limits.",
+    )
     max_variants_per_post: int = Field(
         3,
         alias="MAX_IMAGE_VARIANTS_PER_POST",

@@ -14,6 +14,8 @@ type Props = {
   activities: AgentActivity[];
   completedCount: number;
   totalCount: number;
+  /** HTTP stream finished (artifacts validated & saved). Defaults to `!busy` when omitted. */
+  streamFinished?: boolean;
   onMinimize: () => void;
 };
 
@@ -114,6 +116,7 @@ export function MindWebLoader({
   activities,
   completedCount,
   totalCount,
+  streamFinished: streamFinishedProp,
   onMinimize,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -138,8 +141,11 @@ export function MindWebLoader({
     [graphNodesDone, steps, activities, busy, completedCount, replayKey]
   );
 
+  const streamDone = streamFinishedProp ?? !busy;
   const pct = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
-  const allDone = completedCount === totalCount && totalCount > 0 && !busy;
+  const graphComplete = completedCount === totalCount && totalCount > 0;
+  /** Graph work done and response stream closed — show completion burst. */
+  const allDone = graphComplete && streamDone;
   const visibleCount = agents.filter((a) => a.status !== "idle").length;
 
   const handleReplay = useCallback(() => {
@@ -166,12 +172,18 @@ export function MindWebLoader({
             <div className="flex items-center gap-4">
               <div>
                 <h2 className="text-sm font-bold text-white/90">
-                  {allDone ? "Campaign Network Complete" : "Orchestrating AI Agents"}
+                  {graphComplete
+                    ? streamDone
+                      ? "Campaign Network Complete"
+                      : "Finalizing campaign bundle"
+                    : "Orchestrating AI Agents"}
                 </h2>
                 <p className="text-[11px] text-slate-500">
-                  {allDone
-                    ? `All ${totalCount} agents finished`
-                    : `${visibleCount} agent${visibleCount !== 1 ? "s" : ""} active \u00B7 ${completedCount}/${totalCount} complete`}
+                  {graphComplete && !streamDone
+                    ? "Saving artifacts and wrapping up…"
+                    : allDone
+                      ? `All ${totalCount} agents finished`
+                      : `${visibleCount} agent${visibleCount !== 1 ? "s" : ""} active \u00B7 ${completedCount}/${totalCount} complete`}
                 </p>
               </div>
               {/* Progress pill */}

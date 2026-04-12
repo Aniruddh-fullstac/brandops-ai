@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import urllib.parse
 
 import httpx
@@ -67,6 +68,7 @@ async def generate_campaign_images(
 ) -> list[str]:
     """
     Returns loadable image URLs. Default: HTTP GET to Pix (raw image/webp). Use IMAGE_PROVIDER=openai for DALL·E.
+    Requests run in parallel (bounded by ``settings.image_generation_concurrency``).
     """
     cap = max(0, settings.max_image_variants)
     trimmed = [p.strip() for p in prompts[:cap] if p.strip()]
@@ -76,21 +78,30 @@ async def generate_campaign_images(
     if settings.image_provider.lower() == "http":
         return await _images_via_http(settings, trimmed)
 
+    sem = asyncio.Semaphore(settings.image_generation_concurrency)
+
+    async def one(p: str) -> str | None:
+        async with sem:
+            try:
+                img = await client.images.generate(
+                    model=settings.image_model,
+                    prompt=p[:3900],
+                    size="1024x1024",
+                    quality="standard",
+                    n=1,
+                )
+            except Exception:  # noqa: BLE001
+                return None
+            u = img.data[0].url if img.data else None
+            return str(u) if u else None
+
+    parts = await asyncio.gather(*[one(p) for p in trimmed], return_exceptions=True)
     urls: list[str] = []
-    for p in trimmed:
-        try:
-            img = await client.images.generate(
-                model=settings.image_model,
-                prompt=p[:3900],
-                size="1024x1024",
-                quality="standard",
-                n=1,
-            )
-        except Exception:  # noqa: BLE001
+    for part in parts:
+        if isinstance(part, Exception):
             continue
-        u = img.data[0].url if img.data else None
-        if u:
-            urls.append(u)
+        if part:
+            urls.append(part)
     return urls
 
 
@@ -98,24 +109,38 @@ async def _images_via_http(settings: Settings, prompts: list[str]) -> list[str]:
     tpl = (settings.image_http_template or "").strip()
     if "{prompt}" not in tpl and "{prompt_raw}" not in tpl:
         return []
-    urls: list[str] = []
-    async with httpx.AsyncClient(
-        timeout=settings.http_timeout_s,
-        follow_redirects=True,
-        headers={"User-Agent": "CampaignEngine/1.0"},
-    ) as http:
-        for p in prompts:
+
+    sem = asyncio.Semaphore(settings.image_generation_concurrency)
+
+    async def fetch_one(http: httpx.AsyncClient, p: str) -> str | None:
+        async with sem:
             enc = urllib.parse.quote(p[:3900], safe="")
             url = tpl.replace("{prompt}", enc).replace("{prompt_raw}", p[:3900])
             try:
                 resp = await http.get(url)
             except Exception:  # noqa: BLE001
-                continue
+                return None
             if _is_image_response(resp):
-                urls.append(str(resp.url))
-                continue
+                return str(resp.url)
             if resp.status_code in (301, 302, 303, 307, 308):
                 loc = resp.headers.get("location")
                 if loc:
-                    urls.append(loc)
+                    return loc
+            return None
+
+    async with httpx.AsyncClient(
+        timeout=settings.http_timeout_s,
+        follow_redirects=True,
+        headers={"User-Agent": "CampaignEngine/1.0"},
+    ) as http:
+        results = await asyncio.gather(
+            *[fetch_one(http, p) for p in prompts],
+            return_exceptions=True,
+        )
+    urls: list[str] = []
+    for part in results:
+        if isinstance(part, Exception):
+            continue
+        if part:
+            urls.append(part)
     return urls

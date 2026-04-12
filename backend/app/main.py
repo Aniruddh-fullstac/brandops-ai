@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Campaign Intelligence Graph API."""
+"""KnowYourBrand API."""
 
 import asyncio
 import sys
@@ -53,7 +53,7 @@ async def lifespan(app: FastAPI):
     await app.state.openai.close()
 
 
-app = FastAPI(title="Campaign Intelligence Graph", lifespan=lifespan)
+app = FastAPI(title="KnowYourBrand", lifespan=lifespan)
 _settings = get_settings()
 app.add_middleware(
     CORSMiddleware,
@@ -675,7 +675,11 @@ async def stream_campaign(
         artifacts_dict = last.get("final_artifacts")
         if not artifacts_dict:
             raise RuntimeError("Run completed without artifacts")
-        artifacts = CampaignArtifacts.model_validate(artifacts_dict)
+        # Round-trip through JSON so values from the graph (e.g. mixed numeric types) match Pydantic fields
+        # and we avoid spurious "failed" runs after all pipeline nodes completed.
+        artifacts = CampaignArtifacts.model_validate(
+            json.loads(json.dumps(artifacts_dict, default=str))
+        )
         trace = last.get("trace") or []
         result = CampaignResult(request=req, trace=trace, artifacts=artifacts)
         result_json = result.model_dump(mode="json")
@@ -704,6 +708,9 @@ async def stream_campaign(
         patch: dict[str, Any] = {"status": "failed", "error": str(exc)}
         if tok_events:
             patch["llm_token_usage"] = aggregate_token_usage(tok_events)
+        tr = last.get("trace")
+        if tr:
+            patch["trace"] = tr
         await fb.update_campaign(campaign_doc_id, patch)
         yield _sse({"event": "run_failed", "payload": {"error": str(exc)}})
 

@@ -5,6 +5,7 @@ import copy
 import json
 import re
 import uuid
+from collections import defaultdict
 from typing import Any
 
 from openai import AsyncOpenAI
@@ -2634,21 +2635,26 @@ async def node_schedule_post_images(
     all_prompts: list[str] = []
     generated_rows = 0
 
+    budget = remain
     _emit_live(
         state,
         _act(
             phase="visual",
             agent="post_visual_generator",
             action="generating_image",
-            detail=f"Rendering up to {remain} post images (platform-specific sizes) for {r.brand_name}",
-            progress=f"0/{remain}",
+            detail=(
+                f"Rendering up to {budget} post images (platform-specific sizes, "
+                f"parallel×{settings.image_generation_concurrency}) for {r.brand_name}"
+            ),
+            progress=f"0/{budget}",
         ),
     )
 
+    jobs: list[tuple[str, int, str, str, str]] = []
     for row in rows:
-        if remain <= 0:
+        if len(jobs) >= budget:
             break
-        if not _schedule_row_should_image(row, remain):
+        if not _schedule_row_should_image(row, budget):
             continue
         row_id = str(row.get("id") or "").strip()
         if not row_id:
@@ -2656,13 +2662,19 @@ async def node_schedule_post_images(
         plat = str(row.get("platform") or "")
         dsize, label = dalle_size_and_label(plat)
         prompts = _image_prompts_for_row(row, r.brand_name, settings.max_variants_per_post)
-        urls_this: list[str] = []
         for pi, prompt in enumerate(prompts):
-            if remain <= 0:
+            if len(jobs) >= budget:
                 break
+            jobs.append((row_id, pi, prompt, dsize, label))
+
+    sem = asyncio.Semaphore(settings.image_generation_concurrency)
+
+    async def _render_one(job: tuple[str, int, str, str, str]) -> tuple[str, int, str | None, str, str, str] | None:
+        row_id, pi, prompt, dsize, label = job
+        async with sem:
             url = await generate_one_image(client=client, settings=settings, prompt=prompt, size=dsize)
             if not url:
-                continue
+                return None
             final_u = url
             if run_id and url.startswith("http"):
                 persisted = await persist_remote_image(
@@ -2673,13 +2685,29 @@ async def node_schedule_post_images(
                 )
                 if persisted:
                     final_u = persisted
-            urls_this.append(final_u)
-            all_urls.append(final_u)
-            all_prompts.append(prompt[:300])
-            remain -= 1
-        if urls_this:
-            _patch_row_by_id(cs_work, row_id, urls_this, label, dsize)
-            generated_rows += 1
+            return (row_id, pi, final_u, prompt, label, dsize)
+
+    raw_results = await asyncio.gather(*[_render_one(j) for j in jobs], return_exceptions=True)
+
+    by_row: dict[str, list[tuple[int, str, str, str, str]]] = defaultdict(list)
+    for item in raw_results:
+        if isinstance(item, BaseException):
+            continue
+        if not item:
+            continue
+        row_id, pi, final_u, prompt, label, dsize = item
+        by_row[row_id].append((pi, final_u, prompt, label, dsize))
+
+    for row_id, items in by_row.items():
+        items.sort(key=lambda t: t[0])
+        urls_this = [t[1] for t in items]
+        label = items[0][3]
+        dsize = items[0][4]
+        for t in items:
+            all_urls.append(t[1])
+            all_prompts.append(t[2][:300])
+        _patch_row_by_id(cs_work, row_id, urls_this, label, dsize)
+        generated_rows += 1
 
     return {
         **_trace_step(

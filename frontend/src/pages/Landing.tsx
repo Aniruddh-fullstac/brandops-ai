@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   ArrowRight,
@@ -25,6 +25,16 @@ const heroItem = {
 
 export default function Landing() {
   const { user, loading } = useAuth();
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#f4f6fb]">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-200 border-t-indigo-600" />
+      </div>
+    );
+  }
+  if (user) {
+    return <Navigate to="/dashboard" replace />;
+  }
 
   return (
     <div className="min-h-screen bg-[#f4f6fb] text-slate-900">
@@ -42,33 +52,18 @@ export default function Landing() {
             </div>
           </Link>
           <nav className="flex items-center gap-3">
-            {!loading && (
-              <>
-                {user ? (
-                  <Link
-                    to="/dashboard"
-                    className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700"
-                  >
-                    Dashboard
-                  </Link>
-                ) : (
-                  <>
-                    <Link
-                      to="/login"
-                      className="hidden text-sm font-medium text-slate-600 transition hover:text-slate-900 sm:inline"
-                    >
-                      Sign in
-                    </Link>
-                    <Link
-                      to="/login"
-                      className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700"
-                    >
-                      Get started
-                    </Link>
-                  </>
-                )}
-              </>
-            )}
+            <Link
+              to="/login"
+              className="hidden text-sm font-medium text-slate-600 transition hover:text-slate-900 sm:inline"
+            >
+              Sign in
+            </Link>
+            <Link
+              to="/login"
+              className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700"
+            >
+              Get started
+            </Link>
           </nav>
         </div>
       </header>
@@ -96,23 +91,13 @@ export default function Landing() {
               specialized AI agents that reason with your brief, your channels, and real market signals.
             </motion.p>
             <motion.div variants={heroItem} className="mt-8 flex flex-wrap items-center gap-4">
-              {user ? (
-                <Link
-                  to="/dashboard"
-                  className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/25 transition hover:bg-indigo-700"
-                >
-                  Open dashboard
-                  <ArrowRight size={18} />
-                </Link>
-              ) : (
-                <Link
-                  to="/login"
-                  className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/25 transition hover:bg-indigo-700"
-                >
-                  Sign in with Google
-                  <ArrowRight size={18} />
-                </Link>
-              )}
+              <Link
+                to="/login"
+                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/25 transition hover:bg-indigo-700"
+              >
+                Sign in with Google
+                <ArrowRight size={18} />
+              </Link>
               <a
                 href="#features"
                 className="text-sm font-semibold text-indigo-700 underline-offset-4 hover:underline"
@@ -253,23 +238,13 @@ export default function Landing() {
                 industry-standard OAuth.
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
-                {user ? (
-                  <Link
-                    to="/dashboard"
-                    className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700"
-                  >
-                    Go to dashboard
-                    <ArrowRight size={16} />
-                  </Link>
-                ) : (
-                  <Link
-                    to="/login"
-                    className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700"
-                  >
-                    Sign in to begin
-                    <ArrowRight size={16} />
-                  </Link>
-                )}
+                <Link
+                  to="/login"
+                  className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700"
+                >
+                  Sign in to begin
+                  <ArrowRight size={16} />
+                </Link>
               </div>
             </div>
           </div>

@@ -189,7 +189,20 @@ function EmptyState() {
 /* ── Main page ── */
 export default function NewCampaign() {
   const store = useCampaignStore();
-  const { busy, steps, activities, graphNodesDone, runId, partial, result, errors, banner, artifacts, reset, refreshFromServer } = store;
+  const {
+    busy,
+    steps,
+    activities,
+    graphNodesDone,
+    runId,
+    partial,
+    result,
+    errors,
+    banner,
+    artifacts,
+    reset,
+    refreshFromServer,
+  } = store;
   const hasResults = steps.length > 0 || busy;
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -221,6 +234,15 @@ export default function NewCampaign() {
   // Mind Web animation state
   const [showMindWeb, setShowMindWeb] = useState(false);
   const doneCnt = GRAPH_PIPELINE.filter((n) => graphNodesDone.has(n.id)).length;
+  const pipelineGraphComplete =
+    GRAPH_PIPELINE.length > 0 && doneCnt === GRAPH_PIPELINE.length;
+
+  /** Full-screen mind web: close shortly after the stream ends (artifacts saved). */
+  useEffect(() => {
+    if (!showMindWeb || !pipelineGraphComplete || busy) return;
+    const id = window.setTimeout(() => setShowMindWeb(false), 1600);
+    return () => window.clearTimeout(id);
+  }, [showMindWeb, pipelineGraphComplete, busy]);
 
   const locsClean = profile.locations.map((s) => s.trim()).filter(Boolean);
 
@@ -281,8 +303,12 @@ export default function NewCampaign() {
                 store.setCampaignId(evt.payload.campaign_id);
                 rememberLastCampaignId(evt.payload.campaign_id);
               }
+              void refreshFromServer();
             }
-            if (evt.event === "run_failed") store.setBanner(evt.payload.error);
+            if (evt.event === "run_failed") {
+              store.setBanner(evt.payload.error);
+              void refreshFromServer();
+            }
           }
         }
       } catch (err) {
@@ -291,7 +317,7 @@ export default function NewCampaign() {
         store.setBusy(false);
       }
     },
-    [store, profile, generateImages, campaignMode, campaignBrief, navigate]
+    [store, profile, generateImages, campaignMode, campaignBrief, navigate, refreshFromServer]
   );
 
   const ta =
@@ -416,7 +442,7 @@ export default function NewCampaign() {
                   {busy ? (
                     <>
                       <Spinner size={13} />
-                      Running...
+                      {pipelineGraphComplete ? "Finalizing..." : "Running..."}
                       <span className="absolute inset-0 anim-shimmer" />
                     </>
                   ) : (
@@ -437,7 +463,13 @@ export default function NewCampaign() {
         {/* Pipeline stepper */}
         {hasResults && (
           <div className="border-t border-slate-100 px-5 py-3">
-            <WorkflowViz busy={busy} graphNodesDone={graphNodesDone} steps={steps} runId={runId} />
+            <WorkflowViz
+              busy={busy}
+              graphNodesDone={graphNodesDone}
+              steps={steps}
+              runId={runId}
+              pipelineGraphComplete={pipelineGraphComplete}
+            />
           </div>
         )}
       </div>
@@ -483,7 +515,14 @@ export default function NewCampaign() {
           {/* Right sidebar (2/5 width) */}
           <div className="min-w-0 space-y-5 lg:col-span-2">
             {/* Agent network mini map */}
-            <MindWebMini graphNodesDone={graphNodesDone} busy={busy} steps={steps} activities={activities} onExpand={() => setShowMindWeb(true)} />
+            <MindWebMini
+              graphNodesDone={graphNodesDone}
+              busy={busy}
+              pipelineGraphComplete={pipelineGraphComplete}
+              steps={steps}
+              activities={activities}
+              onExpand={() => setShowMindWeb(true)}
+            />
 
             {/* Streaming artifacts */}
             {Object.keys(partial).length > 0 && (
