@@ -92,8 +92,8 @@ export default function Layout() {
   const { user, logOut } = useAuth();
 
   return (
-    <div className="flex min-h-screen bg-[#f4f6fb]">
-      <aside className="sticky top-0 hidden h-screen w-64 flex-col border-r border-slate-200 bg-white lg:flex">
+    <div className="flex h-screen min-h-0 overflow-hidden bg-[#f4f6fb]">
+      <aside className="hidden h-full min-h-0 w-64 shrink-0 flex-col border-r border-slate-200 bg-white lg:flex">
         <div className="flex items-center gap-2.5 border-b border-slate-100 px-5 py-5">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-600 to-teal-500 text-white">
             <Sparkles size={18} />
@@ -107,7 +107,7 @@ export default function Layout() {
         {/* Campaign switcher */}
         <CampaignSwitcher />
 
-        <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-2">
+        <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden px-3 py-2 thin-scroll">
           {NAV.map((n) => (
             <NavLink
               key={n.to}
@@ -149,8 +149,8 @@ export default function Layout() {
       </aside>
 
       {/* Mobile top bar */}
-      <div className="flex flex-1 flex-col">
-        <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 lg:hidden">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 py-3 lg:hidden">
           <div className="flex items-center gap-2">
             <Sparkles size={18} className="text-indigo-600" />
             <span className="font-display text-sm font-bold text-slate-900">CampaignGraph</span>
@@ -172,7 +172,7 @@ export default function Layout() {
             ))}
           </div>
         </header>
-        <main className="flex-1 overflow-y-auto">
+        <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
           <Outlet />
         </main>
       </div>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Rocket, FileText, TrendingUp, BarChart3 } from "lucide-react";
+import { Rocket, FileText, TrendingUp, BarChart3, UserCircle } from "lucide-react";
 import { apiJson } from "../lib/api";
 import { useCampaignStore } from "../components/CampaignStore";
 import type { CampaignRecord } from "../types";
@@ -63,7 +63,7 @@ export default function Dashboard() {
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-display text-lg font-semibold text-slate-900">Recent Campaigns</h2>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() => void refreshFromServer()}
@@ -71,6 +71,13 @@ export default function Dashboard() {
             >
               Sync data
             </button>
+            <Link
+              to="/campaign/new?profile=1"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+            >
+              <UserCircle size={14} className="text-indigo-600" />
+              Client profile
+            </Link>
             <Link
               to="/campaign/new"
               className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700"

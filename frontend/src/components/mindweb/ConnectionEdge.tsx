@@ -15,12 +15,12 @@ export function ConnectionEdge({ x1, y1, x2, y2, status, index, highlighted }: P
 
   const color =
     status === "complete"
-      ? "#4ADE80"
+      ? "#34d399"
       : status === "active"
-        ? "#6C63FF"
-        : "#334155";
+        ? "#a5b4fc"
+        : "#475569";
 
-  const opacity = highlighted ? 0.7 : status === "idle" ? 0.15 : status === "active" ? 0.5 : 0.35;
+  const opacity = highlighted ? 0.85 : status === "idle" ? 0.12 : status === "active" ? 0.55 : 0.42;
 
   return (
     <motion.line
@@ -29,15 +29,20 @@ export function ConnectionEdge({ x1, y1, x2, y2, status, index, highlighted }: P
       x2={x2}
       y2={y2}
       stroke={color}
-      strokeWidth={highlighted ? 2 : 1.2}
+      strokeWidth={highlighted ? 2.25 : status === "complete" ? 1.6 : 1.2}
       strokeLinecap="round"
       initial={{ pathLength: 0, opacity: 0 }}
-      animate={{ pathLength: 1, opacity }}
-      transition={{
-        pathLength: { duration: 0.6, delay: index * 0.08 + 0.1, ease: "easeOut" },
-        opacity: { duration: 0.4, delay: index * 0.08 },
+      animate={{
+        pathLength: 1,
+        opacity: highlighted ? [opacity, opacity * 1.12, opacity] : opacity,
+        strokeDashoffset: status === "active" ? [0, -32] : 0,
       }}
-      strokeDasharray={length}
+      transition={{
+        pathLength: { duration: 0.75, delay: index * 0.06 + 0.08, ease: [0.22, 1, 0.36, 1] },
+        opacity: { duration: 0.45, delay: index * 0.06 },
+        strokeDashoffset: status === "active" ? { duration: 1.8, repeat: Infinity, ease: "linear" } : { duration: 0 },
+      }}
+      strokeDasharray={status === "active" ? "12 20" : status === "idle" ? `${Math.max(4, length * 0.02)} ${Math.max(8, length * 0.04)}` : length}
       strokeDashoffset={0}
       filter={status === "active" && highlighted ? "url(#edgeGlow)" : undefined}
     />

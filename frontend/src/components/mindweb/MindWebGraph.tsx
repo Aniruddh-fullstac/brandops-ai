@@ -278,17 +278,60 @@ export function MindWebGraph({ agents, width, height }: Props) {
     <div className="relative" style={{ width, height }}>
       <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="select-none">
         <defs>
-          <filter id="edgeGlow" x="-20%" y="-20%" width="140%" height="140%">
-            <feGaussianBlur stdDeviation="3" result="blur" />
+          <filter id="edgeGlow" x="-30%" y="-30%" width="160%" height="160%">
+            <feGaussianBlur stdDeviation="4" result="blur" />
             <feComposite in="SourceGraphic" in2="blur" operator="over" />
           </filter>
+          <filter id="mwNodeShadow" x="-50%" y="-50%" width="200%" height="200%">
+            <feDropShadow dx="0" dy="3" stdDeviation="4" floodColor="#000" floodOpacity="0.45" />
+            <feDropShadow dx="0" dy="0" stdDeviation="8" floodColor="#6366f1" floodOpacity="0.15" />
+          </filter>
+          <linearGradient id="mwGradIdle" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#334155" stopOpacity="0.95" />
+            <stop offset="100%" stopColor="#1e293b" stopOpacity="0.9" />
+          </linearGradient>
+          <linearGradient id="mwGradLoading" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#6366f1" stopOpacity="0.55" />
+            <stop offset="45%" stopColor="#7c3aed" stopOpacity="0.35" />
+            <stop offset="100%" stopColor="#4f46e5" stopOpacity="0.25" />
+          </linearGradient>
+          <linearGradient id="mwGradComplete" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#059669" stopOpacity="0.5" />
+            <stop offset="100%" stopColor="#047857" stopOpacity="0.35" />
+          </linearGradient>
+          <linearGradient id="mwGradAccent" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#a5b4fc" />
+            <stop offset="50%" stopColor="#c4b5fd" />
+            <stop offset="100%" stopColor="#5eead4" />
+          </linearGradient>
           <radialGradient id="centerGlow" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="#6C63FF" stopOpacity="0.04" />
-            <stop offset="70%" stopColor="#6C63FF" stopOpacity="0.01" />
-            <stop offset="100%" stopColor="#6C63FF" stopOpacity="0" />
+            <stop offset="0%" stopColor="#6366f1" stopOpacity="0.09" />
+            <stop offset="55%" stopColor="#4f46e5" stopOpacity="0.03" />
+            <stop offset="100%" stopColor="#6366f1" stopOpacity="0" />
+          </radialGradient>
+          <radialGradient id="centerGlow2" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="#2dd4bf" stopOpacity="0.06" />
+            <stop offset="100%" stopColor="#2dd4bf" stopOpacity="0" />
           </radialGradient>
         </defs>
-        <circle cx={width / 2} cy={height / 2} r={Math.min(width, height) * 0.45} fill="url(#centerGlow)" />
+        <motion.circle
+          cx={width / 2}
+          cy={height / 2}
+          r={Math.min(width, height) * 0.48}
+          fill="url(#centerGlow)"
+          animate={{ opacity: [0.7, 1, 0.7], scale: [1, 1.03, 1] }}
+          transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
+          style={{ transformOrigin: `${width / 2}px ${height / 2}px` }}
+        />
+        <motion.circle
+          cx={width / 2}
+          cy={height / 2}
+          r={Math.min(width, height) * 0.32}
+          fill="url(#centerGlow2)"
+          animate={{ opacity: [0.4, 0.75, 0.4] }}
+          transition={{ duration: 6, repeat: Infinity, ease: "easeInOut", delay: 1 }}
+          style={{ transformOrigin: `${width / 2}px ${height / 2}px` }}
+        />
 
         {edges.map((e, i) => (
           <ConnectionEdge key={`${e.from}-${e.to}`}

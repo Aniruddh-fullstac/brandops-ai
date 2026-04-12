@@ -128,3 +128,33 @@ export function filterRows(rows: ScheduleRow[], platform: string | "all"): Sched
   if (platform === "all") return rows;
   return rows.filter((r) => normalizePlatform(r.platform) === normalizePlatform(platform));
 }
+
+/** ISO date (YYYY-MM-DD) or fallback label for grouping. */
+export function dateKeyForRow(row: ScheduleRow): string {
+  if (!row.scheduled_at) return "— Undated";
+  try {
+    const d = new Date(row.scheduled_at);
+    if (Number.isNaN(d.getTime())) return String(row.scheduled_at).slice(0, 10) || "— Undated";
+    return d.toISOString().slice(0, 10);
+  } catch {
+    return "— Undated";
+  }
+}
+
+/** Calendar-first: each day contains platform sub-sections (same order as platform view). */
+export function calendarSectionsFromRows(rows: ScheduleRow[]): {
+  date: string;
+  platformSections: { platform: string; rows: ScheduleRow[] }[];
+}[] {
+  const byDate = new Map<string, ScheduleRow[]>();
+  for (const r of rows) {
+    const k = dateKeyForRow(r);
+    if (!byDate.has(k)) byDate.set(k, []);
+    byDate.get(k)!.push(r);
+  }
+  const sorted = [...byDate.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  return sorted.map(([date, dateRows]) => ({
+    date,
+    platformSections: platformSectionsFromRows(dateRows),
+  }));
+}

@@ -80,9 +80,8 @@ def build_campaign_graph(client: AsyncOpenAI, settings: Settings):
     g.add_edge("creatives", "critic")
 
     def route_after_critic(state: CampaignState) -> str:
-        if nodes._needs_refine(state.get("critique"), settings):
-            return "refine"
-        return "post_critic_parallel"
+        # Always run at least one refine + recheck cycle after the critic (visible QA loop).
+        return "refine"
 
     g.add_conditional_edges(
         "critic",

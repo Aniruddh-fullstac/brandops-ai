@@ -15,6 +15,13 @@ import type { AgentActivity, Artifacts, CampaignRecord, CampaignResultPayload, T
 
 const LAST_CAMPAIGN_KEY = "campaigngraph:lastCampaignId";
 
+/** When true, `refreshFromServer` updates the campaign list but does not hydrate the last run into the UI (used on New Campaign page). */
+let skipHydrateLatestCampaign = false;
+
+export function setSkipHydrateLatestCampaign(skip: boolean) {
+  skipHydrateLatestCampaign = skip;
+}
+
 type Store = {
   runId: string | null;
   campaignId: string | null;
@@ -75,7 +82,7 @@ export function CampaignStoreProvider({ children }: { children: ReactNode }) {
   const setPartial = (k: string, v: unknown) => _setPartial((p) => ({ ...p, [k]: v }));
   const setSteps = (s: TraceStep[]) => setStepsState(s);
 
-  const reset = () => {
+  const reset = useCallback(() => {
     setRunId(null);
     setCampaignId(null);
     setStepsState([]);
@@ -85,7 +92,7 @@ export function CampaignStoreProvider({ children }: { children: ReactNode }) {
     setResult(null);
     setErrors([]);
     setBanner(null);
-  };
+  }, []);
 
   const hydrateFromRecord = useCallback((c: CampaignRecord) => {
     const arts = (c.artifacts && hasArtifactPayload(c.artifacts) ? c.artifacts : {}) as Artifacts;
@@ -124,6 +131,10 @@ export function CampaignStoreProvider({ children }: { children: ReactNode }) {
 
       const completed = campaigns.filter((x) => x.status === "completed");
       if (!completed.length) return;
+
+      if (skipHydrateLatestCampaign) {
+        return;
+      }
 
       let pick = completed[0];
       try {

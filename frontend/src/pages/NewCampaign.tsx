@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { WorkflowViz } from "../components/WorkflowViz";
 import { MindWebLoader, MindWebMini } from "../components/mindweb";
 import { getNodeIdForPhase } from "../components/mindweb/graphHelpers";
-import { rememberLastCampaignId, useCampaignStore } from "../components/CampaignStore";
+import { rememberLastCampaignId, setSkipHydrateLatestCampaign, useCampaignStore } from "../components/CampaignStore";
 import { StructuredData } from "../components/presentation/StructuredData";
 import { apiFetch } from "../lib/api";
 import type { StreamEvent, TraceStep } from "../types";
@@ -185,13 +186,29 @@ function EmptyState() {
 /* ── Main page ── */
 export default function NewCampaign() {
   const store = useCampaignStore();
-  const { busy, steps, activities, graphNodesDone, runId, partial, result, errors, banner, artifacts } = store;
+  const { busy, steps, activities, graphNodesDone, runId, partial, result, errors, banner, artifacts, reset, refreshFromServer } = store;
   const hasResults = steps.length > 0 || busy;
+  const [searchParams] = useSearchParams();
 
   const [profile, setProfile] = useState<ClientProfile>(() => loadClientProfile());
   const [wizardOpen, setWizardOpen] = useState(() => !loadClientProfile().brand_name.trim());
   const [wizardStep, setWizardStep] = useState(1);
   const [generateImages, setGenerateImages] = useState(true);
+
+  useEffect(() => {
+    setSkipHydrateLatestCampaign(true);
+    reset();
+    return () => {
+      setSkipHydrateLatestCampaign(false);
+      void refreshFromServer();
+    };
+  }, [reset, refreshFromServer]);
+
+  useEffect(() => {
+    if (searchParams.get("profile") !== "1") return;
+    setWizardOpen(true);
+    setWizardStep(1);
+  }, [searchParams]);
 
   useEffect(() => {
     saveClientProfile(profile);
@@ -249,10 +266,6 @@ export default function NewCampaign() {
             if (evt.event === "run_started") store.setRunId(evt.payload.run_id);
             if (evt.event === "graph_node_finished") {
               store.addGraphNode(evt.payload.node);
-              if (evt.payload.node === "post_critic_parallel") {
-                store.addGraphNode("refine");
-                store.addGraphNode("critic_recheck");
-              }
             }
             if (evt.event === "step_completed") store.addStep(evt.payload.step);
             if (evt.event === "agent_activity") store.addActivity(evt.payload);
