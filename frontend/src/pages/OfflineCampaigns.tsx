@@ -278,19 +278,88 @@ export default function OfflineCampaigns() {
             </button>
             <button
               type="button"
-              onClick={() => setShowCreate(true)}
-              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-teal-500 px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-indigo-500/20"
+              disabled={!campaignId}
+              title={!campaignId ? "Select a campaign in the sidebar first" : undefined}
+              onClick={() => ensureQrForCurrentCampaign()}
+              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-teal-500 px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-indigo-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <QrCode className="h-4 w-4" />
+              {mainCampaign?.brand_name
+                ? `QR for ${mainCampaign.brand_name}`
+                : "QR for current campaign"}
+            </button>
+            <button
+              type="button"
+              onClick={() => openStandaloneModal()}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
             >
               <Plus className="h-4 w-4" />
-              New QR campaign
+              Standalone QR
             </button>
           </div>
         </div>
 
-        {showCreate && (
+        {!campaignId && (
+          <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            Select a <strong>campaign</strong> in the sidebar to tie QR analytics to that run. You can still open{" "}
+            <strong>Standalone QR</strong> without a global selection.
+          </p>
+        )}
+
+        {createModal === "from-global" && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
             <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
-              <h2 className="font-display text-lg font-bold text-slate-900">Create campaign</h2>
+              <h2 className="font-display text-lg font-bold text-slate-900">QR for current campaign</h2>
+              <p className="mt-2 text-sm text-slate-600">
+                Copy and visuals are taken from your selected campaign ({mainCampaign?.brand_name || "—"}). Add anything
+                that is still missing below.
+              </p>
+              <form className="mt-4 space-y-3" onSubmit={createCampaign}>
+                <label className="block text-xs font-semibold text-slate-500">
+                  Default placement / store id (optional — adds ?loc= to QR & links)
+                </label>
+                <input
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 font-mono text-sm"
+                  placeholder="e.g. mall-north-01"
+                  value={form.default_qr_location}
+                  onChange={(e) => setForm((f) => ({ ...f, default_qr_location: e.target.value }))}
+                />
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={form.status === "active"}
+                    onChange={(e) => setForm((f) => ({ ...f, status: e.target.checked ? "active" : "draft" }))}
+                  />
+                  Publish immediately (active)
+                </label>
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    className="rounded-xl px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100"
+                    onClick={() => setCreateModal(null)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+                  >
+                    {saving ? "Saving…" : "Create QR campaign"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {createModal === "standalone" && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+            <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+              <h2 className="font-display text-lg font-bold text-slate-900">Standalone QR campaign</h2>
+              <p className="mt-2 text-sm text-slate-500">
+                Not linked to the campaign selected in the sidebar. Use this for one-off placements or tests.
+              </p>
               <form className="mt-4 space-y-3" onSubmit={createCampaign}>
                 <label className="block text-xs font-semibold text-slate-500">Title</label>
                 <input
@@ -359,7 +428,7 @@ export default function OfflineCampaigns() {
                   <button
                     type="button"
                     className="rounded-xl px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100"
-                    onClick={() => setShowCreate(false)}
+                    onClick={() => setCreateModal(null)}
                   >
                     Cancel
                   </button>

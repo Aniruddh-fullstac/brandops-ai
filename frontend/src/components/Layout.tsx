@@ -1,4 +1,4 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, Navigate, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
   Rocket,
@@ -92,10 +92,19 @@ function CampaignSwitcher() {
 
 export default function Layout() {
   const { user, logOut } = useAuth();
-  const navItems = useMemo(
-    () => NAV_BASE.filter((n) => n.to !== "/admin" || isAdminEmail(user?.email ?? null)),
-    [user?.email],
-  );
+  const location = useLocation();
+  const isAdmin = isAdminEmail(user?.email ?? null);
+
+  const navItems = useMemo(() => {
+    if (isAdmin) {
+      return NAV_BASE.filter((n) => n.to === "/admin");
+    }
+    return NAV_BASE.filter((n) => n.to !== "/admin");
+  }, [isAdmin]);
+
+  if (isAdmin && location.pathname !== "/admin") {
+    return <Navigate to="/admin" replace />;
+  }
 
   return (
     <div className="flex h-screen min-h-0 overflow-hidden bg-[#f4f6fb]">
@@ -108,11 +117,10 @@ export default function Layout() {
           />
           <div>
             <p className="font-display text-sm font-bold tracking-tight text-slate-900">KnowYourBrand</p>
-            <p className="text-[10px] text-slate-400">AI marketing intelligence</p>
+            <p className="text-[10px] text-slate-400">{isAdmin ? "Admin observability" : "AI marketing intelligence"}</p>
           </div>
         </div>
 
-        {/* Campaign switcher */}
         <CampaignSwitcher />
 
         <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden px-3 py-2 thin-scroll">
