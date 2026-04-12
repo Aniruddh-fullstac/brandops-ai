@@ -28,6 +28,20 @@ class Settings(BaseSettings):
 
     image_model: str = Field("dall-e-3", alias="OPENAI_IMAGE_MODEL")
     max_image_variants: int = Field(4, alias="OPENAI_MAX_IMAGES", ge=0, le=8)
+    max_schedule_post_images: int = Field(
+        48,
+        alias="MAX_SCHEDULE_POST_IMAGES",
+        ge=0,
+        le=120,
+        description="Cap total generated images for scheduled posts (cost control).",
+    )
+    max_variants_per_post: int = Field(
+        3,
+        alias="MAX_IMAGE_VARIANTS_PER_POST",
+        ge=1,
+        le=4,
+        description="Alternate renders per post when the model requests extras.",
+    )
     media_root: Path = Field(
         default_factory=lambda: Path(__file__).resolve().parent.parent / "data" / "media",
         alias="MEDIA_ROOT",

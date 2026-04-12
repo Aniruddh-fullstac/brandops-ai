@@ -53,7 +53,7 @@ export function CritiquePanel({ critique }: { critique: Record<string, unknown> 
             <Gauge size={14} className="text-indigo-500" />
             Channel scores
           </p>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
             {scoreEntries.map(([ch, sc]) => {
               const n = Math.min(100, Math.max(0, Number(sc)));
               return (

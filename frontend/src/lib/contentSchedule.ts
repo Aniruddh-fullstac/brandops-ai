@@ -11,6 +11,12 @@ export type ScheduleRow = {
   format?: string;
   image_needed?: boolean;
   image_prompt?: string | null;
+  /** URLs of images generated for this post (platform-sized). */
+  generated_image_urls?: string[];
+  /** Human-readable size label from the generator (e.g. "9:16 vertical"). */
+  image_size_label?: string | null;
+  /** OpenAI image size token when using DALL·E: 1024x1024 | 1024x1792 | 1792x1024 */
+  image_generation_size?: string | null;
   email_subject?: string | null;
   email_preheader?: string | null;
   whatsapp_message?: string | null;
@@ -41,6 +47,7 @@ export const PLATFORM_LABEL: Record<string, string> = {
   instagram: "Instagram",
   linkedin: "LinkedIn",
   twitter: "X (Twitter)",
+  youtube: "YouTube",
   email: "Email",
   whatsapp: "WhatsApp",
   push_notification: "Push notifications",
@@ -82,6 +89,39 @@ export function groupByPlatform(rows: ScheduleRow[]): Map<string, ScheduleRow[]>
     m.get(k)!.push(r);
   }
   return m;
+}
+
+/** Platform sections in a stable order (PLATFORM_ORDER, then any others). Rows sorted by scheduled_at. */
+export function platformSectionsFromRows(rows: ScheduleRow[]): { platform: string; rows: ScheduleRow[] }[] {
+  const m = groupByPlatform(rows);
+  const order: string[] = [];
+  for (const p of PLATFORM_ORDER) {
+    const list = m.get(p);
+    if (list && list.length) order.push(p);
+  }
+  for (const k of m.keys()) {
+    if (!order.includes(k)) order.push(k);
+  }
+  return order.map((platform) => {
+    const rs = [...(m.get(platform) || [])];
+    rs.sort((a, b) => String(a.scheduled_at).localeCompare(String(b.scheduled_at)));
+    return { platform, rows: rs };
+  });
+}
+
+/** Tailwind classes for post image previews (aligns with backend `dalle_size_and_label`). */
+export function imagePreviewAspectClass(row: ScheduleRow): string {
+  const size = row.image_generation_size;
+  if (size === "1024x1792") return "aspect-[9/16] w-full max-h-[min(72vh,560px)]";
+  if (size === "1792x1024") return "aspect-video w-full";
+  const p = normalizePlatform(row.platform);
+  if (p === "instagram" || p === "video" || p === "youtube") {
+    return "aspect-[9/16] w-full max-h-[min(72vh,560px)]";
+  }
+  if (p === "linkedin" || p === "twitter" || p === "blog" || p === "seo") {
+    return "aspect-video w-full";
+  }
+  return "aspect-square w-full";
 }
 
 export function filterRows(rows: ScheduleRow[], platform: string | "all"): ScheduleRow[] {

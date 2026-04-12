@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import re
 import uuid
@@ -11,8 +12,9 @@ from openai import AsyncOpenAI
 from app.config import Settings
 from app.schemas.campaign import AgentActivity, AgentTraceStep, CampaignArtifacts, CampaignRequest, SourceRef, ToolInvocation
 from app.services.fetch import fetch_url_text
-from app.services.image_store import persist_remote_images
-from app.services.images import generate_campaign_images
+from app.services.image_store import persist_remote_image, persist_remote_images
+from app.services.images import generate_campaign_images, generate_one_image
+from app.services.platform_visuals import dalle_size_and_label, normalize_platform_key
 from app.services.llm import chat_json_object, chat_text
 from app.services.openai_responses import run_responses_web_research
 from app.services.reddit import reddit_search_posts
@@ -1616,7 +1618,9 @@ async def node_content_schedule(state: CampaignState, *, client: AsyncOpenAI, se
             "push_notification, blog, video. Each value is an array of objects with fields: "
             "scheduled_at (ISO 8601 datetime), headline, caption, hashtags (array of strings), cta, format, "
             "target_segment (string or null), "
-            "image_needed (boolean), image_prompt (string or null), "
+            "image_needed (boolean), image_prompt (string or null — required when image_needed), "
+            "extra_image_prompts (array of 0-2 alternate prompts for carousels, A/B tests, or extra angles; optional), "
+            "image_variant_count (integer 1-3, default 1 — how many distinct images to produce for this post when useful), "
             "email_subject (null unless platform is email), email_preheader (null unless email), "
             "whatsapp_message (null unless whatsapp), push_title (null unless push_notification), "
             "push_body (null unless push_notification).\n"
@@ -1624,9 +1628,13 @@ async def node_content_schedule(state: CampaignState, *, client: AsyncOpenAI, se
             "audience segment name when the post is tailored to a segment from creatives.social.segment_variants), "
             "sorted by scheduled_at ascending. "
             "Include at least 28 rows across instagram, linkedin, twitter, email, whatsapp, push_notification, blog, video. "
+            "Every timeline row MUST have a unique id (e.g. cs_001, cs_002). "
             "Use campaign_calendar days + event times to build scheduled_at. "
             "Adapt copy from creatives JSON; align tone with localized cultural notes when present. "
             "When segment_variants exist, distribute posts across segments (not all posts need a segment; use null when broad). "
+            "For instagram, linkedin, twitter, blog, and video rows, set image_needed true with a concrete image_prompt "
+            "(scene, style, subject) unless the row is explicitly text-only. Use extra_image_prompts + image_variant_count>1 "
+            "only when multiple distinct visuals make sense (e.g. carousel, story+feed). "
             "Social posts: include 3-8 hashtags where relevant; omit hashtags for email, whatsapp, push."
         ),
         user=(
@@ -1836,16 +1844,232 @@ async def node_post_critic_parallel(
     return _merge_partial_returns(loc, kw, tim)
 
 
+def _merge_state_patch(state: CampaignState, patch: dict[str, Any]) -> CampaignState:
+    """Shallow merge for passing updated keys into a follow-up node (trace/errors/activities append)."""
+    out: dict[str, Any] = dict(state)
+    for k, v in patch.items():
+        if k == "trace" and isinstance(v, list):
+            out["trace"] = list(out.get("trace") or []) + v
+        elif k == "errors" and isinstance(v, list):
+            out["errors"] = list(out.get("errors") or []) + v
+        elif k == "activities" and isinstance(v, list):
+            out["activities"] = list(out.get("activities") or []) + v
+        else:
+            out[k] = v
+    return out  # type: ignore[return-value]
+
+
+def _flatten_content_schedule_row_refs(cs: dict[str, Any]) -> list[dict[str, Any]]:
+    timeline = cs.get("timeline")
+    if isinstance(timeline, list) and timeline:
+        return [r for r in timeline if isinstance(r, dict)]
+    out: list[dict[str, Any]] = []
+    pl = cs.get("platforms")
+    if isinstance(pl, dict):
+        for plat, arr in pl.items():
+            if not isinstance(arr, list):
+                continue
+            for r in arr:
+                if isinstance(r, dict):
+                    if not r.get("platform"):
+                        r["platform"] = plat
+                    out.append(r)
+    return out
+
+
+def _schedule_row_should_image(row: dict[str, Any], budget_left: int) -> bool:
+    if budget_left <= 0:
+        return False
+    if row.get("image_needed") is True:
+        return True
+    plat = normalize_platform_key(str(row.get("platform") or ""))
+    return plat in (
+        "instagram",
+        "linkedin",
+        "twitter",
+        "tiktok",
+        "blog",
+        "video",
+        "youtube",
+        "seo",
+    )
+
+
+def _image_prompts_for_row(
+    row: dict[str, Any],
+    brand_name: str,
+    max_variants: int,
+) -> list[str]:
+    raw_main = row.get("image_prompt") or row.get("headline") or row.get("caption") or ""
+    main = str(raw_main).strip() if raw_main else ""
+    extras_raw = row.get("extra_image_prompts")
+    extras: list[str] = []
+    if isinstance(extras_raw, list):
+        extras = [str(e).strip() for e in extras_raw if str(e).strip()]
+    n_var = row.get("image_variant_count")
+    try:
+        n_var_i = int(n_var) if n_var is not None else 1
+    except (TypeError, ValueError):
+        n_var_i = 1
+    n_var_i = max(1, min(n_var_i, max_variants))
+    prompts: list[str] = []
+    if main:
+        prompts.append(main)
+    for e in extras:
+        if len(prompts) >= n_var_i:
+            break
+        prompts.append(e)
+    if not prompts and brand_name:
+        prompts.append(
+            f"Brand campaign visual for {brand_name}, {row.get('platform', 'social')} — {row.get('format', 'post')}"
+        )
+    while len(prompts) < n_var_i and main:
+        prompts.append(f"Alternate visual angle, same campaign message: {main[:400]}")
+        break
+    return prompts[:n_var_i]
+
+
+def _ensure_schedule_row_ids(cs: dict[str, Any]) -> None:
+    tl = cs.get("timeline")
+    if isinstance(tl, list):
+        for i, r in enumerate(tl):
+            if isinstance(r, dict) and not str(r.get("id") or "").strip():
+                r["id"] = f"cs_tl_{i:04d}"
+    pl = cs.get("platforms")
+    if isinstance(pl, dict):
+        for plat, arr in pl.items():
+            if not isinstance(arr, list):
+                continue
+            pk = normalize_platform_key(str(plat))
+            for i, r in enumerate(arr):
+                if isinstance(r, dict) and not str(r.get("id") or "").strip():
+                    r["id"] = f"cs_{pk}_{i:04d}"
+
+
+def _patch_row_by_id(cs: dict[str, Any], row_id: str, urls: list[str], label: str, dsize: str) -> None:
+    tl = cs.get("timeline")
+    if isinstance(tl, list):
+        for r in tl:
+            if isinstance(r, dict) and str(r.get("id", "")) == row_id:
+                r["generated_image_urls"] = urls
+                r["image_size_label"] = label
+                r["image_generation_size"] = dsize
+                return
+    pl = cs.get("platforms")
+    if isinstance(pl, dict):
+        for arr in pl.values():
+            if not isinstance(arr, list):
+                continue
+            for r in arr:
+                if isinstance(r, dict) and str(r.get("id", "")) == row_id:
+                    r["generated_image_urls"] = urls
+                    r["image_size_label"] = label
+                    r["image_generation_size"] = dsize
+                    return
+
+
+async def node_schedule_post_images(
+    state: CampaignState, *, client: AsyncOpenAI, settings: Settings
+) -> dict[str, Any]:
+    """Generate platform-sized images per scheduled row; patch content_schedule + aggregate image_urls."""
+    if not state.get("generate_images", True):
+        return {
+            **_trace_step(
+                agent="post_visual_generator",
+                phase="visual",
+                title="Post images skipped",
+                summary="Disabled per request.",
+            ),
+            "image_urls": [],
+            "image_prompts": [],
+        }
+    cs_raw = state.get("content_schedule")
+    if not isinstance(cs_raw, dict) or not cs_raw:
+        return {}
+    cs_work = copy.deepcopy(cs_raw)
+    _ensure_schedule_row_ids(cs_work)
+    rows = _flatten_content_schedule_row_refs(cs_work)
+    r = _req(state)
+    run_id = str(state.get("run_id") or "").strip()
+    remain = max(0, settings.max_schedule_post_images)
+    all_urls: list[str] = []
+    all_prompts: list[str] = []
+    generated_rows = 0
+
+    _emit_live(
+        state,
+        _act(
+            phase="visual",
+            agent="post_visual_generator",
+            action="generating_image",
+            detail=f"Rendering up to {remain} post images (platform-specific sizes) for {r.brand_name}",
+            progress=f"0/{remain}",
+        ),
+    )
+
+    for row in rows:
+        if remain <= 0:
+            break
+        if not _schedule_row_should_image(row, remain):
+            continue
+        row_id = str(row.get("id") or "").strip()
+        if not row_id:
+            continue
+        plat = str(row.get("platform") or "")
+        dsize, label = dalle_size_and_label(plat)
+        prompts = _image_prompts_for_row(row, r.brand_name, settings.max_variants_per_post)
+        urls_this: list[str] = []
+        for pi, prompt in enumerate(prompts):
+            if remain <= 0:
+                break
+            url = await generate_one_image(client=client, settings=settings, prompt=prompt, size=dsize)
+            if not url:
+                continue
+            final_u = url
+            if run_id and url.startswith("http"):
+                persisted = await persist_remote_image(
+                    url=url,
+                    run_id=run_id,
+                    settings=settings,
+                    basename=f"sch_{row_id}_{pi}",
+                )
+                if persisted:
+                    final_u = persisted
+            urls_this.append(final_u)
+            all_urls.append(final_u)
+            all_prompts.append(prompt[:300])
+            remain -= 1
+        if urls_this:
+            _patch_row_by_id(cs_work, row_id, urls_this, label, dsize)
+            generated_rows += 1
+
+    return {
+        **_trace_step(
+            agent="post_visual_generator",
+            phase="visual",
+            title="Per-post social visuals",
+            summary=f"Generated images for {generated_rows} schedule row(s); sizes follow platform norms (DALL·E 3 buckets).",
+            reasoning="Portrait for vertical platforms; landscape for LinkedIn/X/blog; square for email/push.",
+            structured={"images_total": len(all_urls), "rows_touched": generated_rows},
+        ),
+        "content_schedule": cs_work,
+        "image_urls": all_urls,
+        "image_prompts": all_prompts,
+    }
+
+
 async def node_parallel_schedule_bundle(
     state: CampaignState, *, client: AsyncOpenAI, settings: Settings
 ) -> dict[str, Any]:
-    """Run unified content schedule, performance sim, and visuals in parallel."""
-    cs, perf, vis = await asyncio.gather(
+    """Content schedule + performance sim, then per-post images (needs schedule first)."""
+    cs, perf = await asyncio.gather(
         node_content_schedule(state, client=client, settings=settings),
         node_performance_sim(state, client=client, settings=settings),
-        node_visuals(state, client=client, settings=settings),
     )
-    return _merge_partial_returns(cs, perf, vis)
+    merged = _merge_partial_returns(cs, perf)
+    boosted = _merge_state_patch(state, merged)
+    vis = await node_schedule_post_images(boosted, client=client, settings=settings)
+    return _merge_partial_returns(merged, vis)
 
 
 async def node_finalize(state: CampaignState, *, client: AsyncOpenAI, settings: Settings) -> dict[str, Any]:

@@ -11,6 +11,7 @@ import {
   PLATFORM_ORDER,
   filterRows,
   normalizePlatform,
+  platformSectionsFromRows,
   rowsFromArtifact,
   type ContentScheduleArtifact,
 } from "../lib/contentSchedule";
@@ -24,6 +25,7 @@ export default function ContentOutputs() {
   const cs = (artifacts as { content_schedule?: ContentScheduleArtifact }).content_schedule;
   const rows = useMemo(() => rowsFromArtifact(cs || null), [cs]);
   const filtered = useMemo(() => filterRows(rows, platform), [rows, platform]);
+  const scheduleSections = useMemo(() => platformSectionsFromRows(filtered), [filtered]);
 
   const imageUrls = ((artifacts as { image_urls?: string[] }).image_urls || []).filter(Boolean);
   const critique = (artifacts as { creative_critique?: Record<string, unknown> }).creative_critique;
@@ -56,17 +58,21 @@ export default function ContentOutputs() {
 
   if (hydrateLoading) {
     return (
-      <div className="mx-auto max-w-6xl px-6 py-16 text-center text-sm text-slate-500">Loading saved content…</div>
+      <div className="w-full px-6 py-16 text-center text-sm text-slate-500 lg:px-10 xl:px-12">Loading saved content…</div>
     );
   }
 
   const hasUnified = rows.length > 0;
   const overview = cs?.overview;
+  const showInitialQa = Boolean(critique && Object.keys(critique).length > 0);
+  const showPostQa = Boolean(critiquePost && Object.keys(critiquePost).length > 0);
+  const bothQaPanels = showInitialQa && showPostQa;
+  const pageGutter = "w-full px-6 lg:px-10 xl:px-12";
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50/80 to-white pb-16">
+    <div className="min-h-screen w-full bg-gradient-to-b from-slate-50/80 to-white pb-16">
       <div className="border-b border-slate-200/80 bg-white/90 backdrop-blur-md">
-        <div className="mx-auto max-w-6xl px-6 py-8">
+        <div className={`${pageGutter} py-8`}>
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="text-[11px] font-bold uppercase tracking-widest text-indigo-600">Content Studio</p>
@@ -117,7 +123,7 @@ export default function ContentOutputs() {
         </div>
       </div>
 
-      <div className="mx-auto max-w-6xl space-y-10 px-6 pt-10">
+      <div className={`${pageGutter} space-y-10 pt-10`}>
         {hasUnified && overview && (
           <div className="overflow-hidden rounded-2xl border border-indigo-100/90 bg-gradient-to-br from-indigo-50/90 via-white to-violet-50/40 shadow-md shadow-indigo-100/30">
             <div className="flex items-center gap-2 border-b border-indigo-100/60 bg-white/50 px-6 py-3 backdrop-blur-sm">
@@ -135,7 +141,9 @@ export default function ContentOutputs() {
             <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
               <div>
                 <h2 className="font-display text-lg font-bold text-slate-900">Unified schedule</h2>
-                <p className="text-xs text-slate-500">Filter by platform — cards show segment tags when the model assigned one.</p>
+                <p className="text-xs text-slate-500">
+                  Grouped by platform with native-sized post art when generated — filter chips narrow the list.
+                </p>
               </div>
             </div>
             <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-md">
@@ -167,11 +175,27 @@ export default function ContentOutputs() {
                 ))}
               </div>
 
-              <div className="grid gap-4 border-t border-slate-100 p-4 lg:grid-cols-2">
-                {filtered.length === 0 ? (
-                  <p className="col-span-full text-center text-sm text-slate-500">No items for this filter.</p>
+              <div className="space-y-10 border-t border-slate-100 p-4">
+                {scheduleSections.length === 0 ? (
+                  <p className="text-center text-sm text-slate-500">No items for this filter.</p>
                 ) : (
-                  filtered.map((row, i) => <ScheduleItemCard key={row.id || `${row.scheduled_at}-${i}`} row={row} />)
+                  scheduleSections.map(({ platform: sectionPid, rows: sectionRows }) => {
+                    const badgePid = sectionPid;
+                    const sectionLabel = PLATFORM_LABEL[badgePid] || badgePid.replace(/_/g, " ");
+                    return (
+                      <section key={sectionPid} className="space-y-3">
+                        <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-slate-100 pb-2">
+                          <h3 className="font-display text-sm font-bold text-slate-800">{sectionLabel}</h3>
+                          <span className="text-[11px] font-medium text-slate-500">{sectionRows.length} scheduled</span>
+                        </div>
+                        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                          {sectionRows.map((row, i) => (
+                            <ScheduleItemCard key={row.id || `${row.scheduled_at}-${sectionPid}-${i}`} row={row} />
+                          ))}
+                        </div>
+                      </section>
+                    );
+                  })
                 )}
               </div>
               <div className="border-t border-slate-100 px-4 py-3 bg-slate-50/30">
@@ -218,7 +242,7 @@ export default function ContentOutputs() {
           <section>
             <h2 className="font-display text-lg font-bold text-slate-900">Campaign visuals</h2>
             <p className="mt-1 text-xs text-slate-500">Key art aligned to strategy — pair with posts marked for imagery.</p>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
               {imageUrls.map((u, i) => (
                 <div key={u + i} className="group relative overflow-hidden rounded-2xl border border-slate-200 shadow-md">
                   <img src={u} alt={`Campaign visual ${i + 1}`} className="aspect-[4/3] w-full object-cover transition group-hover:scale-[1.02]" />
@@ -247,10 +271,10 @@ export default function ContentOutputs() {
           />
         )}
 
-        {(critique && Object.keys(critique).length > 0) || (critiquePost && Object.keys(critiquePost).length > 0) ? (
-          <div className="grid gap-6 xl:grid-cols-2">
-            {critique && Object.keys(critique).length > 0 && (
-              <div className="rounded-2xl border border-slate-200/90 bg-white p-6 shadow-md">
+        {showInitialQa || showPostQa ? (
+          <div className={`grid w-full gap-6 ${bothQaPanels ? "xl:grid-cols-2" : "grid-cols-1"}`}>
+            {showInitialQa && (
+              <div className="min-w-0 rounded-2xl border border-slate-200/90 bg-white p-6 shadow-md xl:p-8">
                 <h2 className="font-display text-base font-bold text-slate-900">Creative QA — initial draft</h2>
                 <p className="mt-1 text-xs text-slate-500">Scores and directives on the first creative bundle.</p>
                 <div className="mt-5">
@@ -261,8 +285,8 @@ export default function ContentOutputs() {
                 </div>
               </div>
             )}
-            {critiquePost && Object.keys(critiquePost).length > 0 && (
-              <div className="rounded-2xl border border-teal-200/60 bg-gradient-to-br from-teal-50/30 to-white p-6 shadow-md">
+            {showPostQa && (
+              <div className="min-w-0 rounded-2xl border border-teal-200/60 bg-gradient-to-br from-teal-50/30 to-white p-6 shadow-md xl:p-8">
                 <h2 className="font-display text-base font-bold text-slate-900">Creative QA — after refinement</h2>
                 <p className="mt-1 text-xs text-slate-600">Validates the bundle that moved forward to localization.</p>
                 <div className="mt-5">

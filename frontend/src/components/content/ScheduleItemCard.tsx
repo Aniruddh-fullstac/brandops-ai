@@ -1,11 +1,12 @@
 import { Calendar, Hash, ImageIcon, Megaphone } from "lucide-react";
 import type { ScheduleRow } from "../../lib/contentSchedule";
-import { PLATFORM_LABEL, normalizePlatform } from "../../lib/contentSchedule";
+import { PLATFORM_LABEL, imagePreviewAspectClass, normalizePlatform } from "../../lib/contentSchedule";
 
 const BADGE: Record<string, string> = {
   instagram: "bg-pink-100 text-pink-800 border-pink-200",
   linkedin: "bg-blue-100 text-blue-800 border-blue-200",
   twitter: "bg-slate-800 text-white border-slate-700",
+  youtube: "bg-red-100 text-red-900 border-red-200",
   email: "bg-amber-100 text-amber-900 border-amber-200",
   whatsapp: "bg-green-100 text-green-900 border-green-200",
   push_notification: "bg-orange-100 text-orange-900 border-orange-200",
@@ -35,6 +36,10 @@ export function ScheduleItemCard({ row, compact }: { row: ScheduleRow; compact?:
   const label = PLATFORM_LABEL[p] || p.replace(/_/g, " ");
   const when = fmtWhen(row.scheduled_at);
   const tags = Array.isArray(row.hashtags) ? row.hashtags : [];
+  const imageUrls = Array.isArray(row.generated_image_urls)
+    ? row.generated_image_urls.filter((u): u is string => typeof u === "string" && u.length > 0)
+    : [];
+  const aspectCls = imagePreviewAspectClass(row);
 
   return (
     <article
@@ -58,6 +63,31 @@ export function ScheduleItemCard({ row, compact }: { row: ScheduleRow; compact?:
           {when.time && <span className="text-slate-400">{when.time}</span>}
         </div>
       </div>
+
+      {imageUrls.length > 0 && (
+        <div className="mt-3 space-y-2">
+          {row.image_size_label && (
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{row.image_size_label}</p>
+          )}
+          <div className={imageUrls.length > 1 ? "grid grid-cols-1 gap-2 sm:grid-cols-2" : ""}>
+            {imageUrls.map((src, idx) => (
+              <div
+                key={`${src}-${idx}`}
+                className={`group relative overflow-hidden rounded-xl border border-slate-200/90 bg-slate-100 shadow-sm ${aspectCls}`}
+              >
+                <img src={src} alt="" className="h-full w-full object-cover transition group-hover:scale-[1.02]" />
+                <a
+                  href={src}
+                  download
+                  className="absolute bottom-2 right-2 rounded-lg bg-white/95 px-2.5 py-1 text-[10px] font-bold text-indigo-700 opacity-0 shadow-lg backdrop-blur transition group-hover:opacity-100"
+                >
+                  Download
+                </a>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {row.headline && <h3 className={`mt-3 font-display font-semibold text-slate-900 ${compact ? "text-sm" : "text-base"}`}>{row.headline}</h3>}
 
@@ -116,7 +146,7 @@ export function ScheduleItemCard({ row, compact }: { row: ScheduleRow; compact?:
         </p>
       )}
 
-      {row.image_needed && row.image_prompt && (
+      {row.image_needed && row.image_prompt && imageUrls.length === 0 && (
         <div className="mt-3 flex gap-2 rounded-lg border border-violet-100 bg-violet-50/50 p-2 text-xs text-violet-900">
           <ImageIcon size={16} className="shrink-0 text-violet-500" />
           <div>

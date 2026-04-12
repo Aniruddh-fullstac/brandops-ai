@@ -9,7 +9,10 @@ import httpx
 from app.config import Settings
 
 _RUN_ID_RE = re.compile(r"^[a-f0-9]{8,64}$")
-_FILENAME_RE = re.compile(r"^image_\d{2}\.(png|jpg|jpeg|webp)$", re.I)
+_FILENAME_RE = re.compile(
+    r"^(image_\d{2}|sch_[a-zA-Z0-9._-]{1,80})\.(png|jpg|jpeg|webp)$",
+    re.I,
+)
 
 
 def is_safe_run_id(run_id: str) -> bool:
@@ -44,6 +47,39 @@ def _suffix_from_response(r: httpx.Response) -> str:
 
 def _mime_from_ext(ext: str) -> str:
     return {".webp": "image/webp", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}.get(ext, "image/webp")
+
+
+async def persist_remote_image(
+    *,
+    url: str,
+    run_id: str,
+    settings: Settings,
+    basename: str,
+) -> str | None:
+    """Download one URL, save as ``basename`` + detected ext, return data URI."""
+    if not url.startswith("http") or not is_safe_run_id(run_id):
+        return None
+    safe_base = re.sub(r"[^a-zA-Z0-9._-]+", "_", basename).strip("._")[:80] or "img"
+    out_dir = run_media_dir(settings, run_id)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    async with httpx.AsyncClient(
+        timeout=settings.http_timeout_s,
+        follow_redirects=True,
+        headers={"User-Agent": "CampaignEngine/1.0"},
+    ) as client:
+        try:
+            r = await client.get(url)
+            r.raise_for_status()
+        except Exception:  # noqa: BLE001
+            return None
+        if not (r.content and len(r.content) > 8):
+            return None
+        ext = _suffix_from_response(r)
+        path = out_dir / f"{safe_base}{ext}"
+        path.write_bytes(r.content)
+        mime = _mime_from_ext(ext)
+        b64 = base64.b64encode(r.content).decode("ascii")
+        return f"data:{mime};base64,{b64}"
 
 
 async def persist_remote_images(
