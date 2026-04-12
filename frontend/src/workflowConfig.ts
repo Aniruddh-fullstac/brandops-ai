@@ -12,6 +12,7 @@ import {
   Users,
   Brain,
   BadgeCheck,
+  TrendingUp,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -44,6 +45,14 @@ export const GRAPH_PIPELINE: readonly PipelineNode[] = [
     sub: "Web + Reddit + trends",
     description: "Three parallel agents research competitors, social sentiment, and market trends.",
     icon: Search,
+  },
+  {
+    id: "seo_website",
+    label: "SEO audit",
+    sub: "Web + your site",
+    description:
+      "Uses live web search for current SEO guidance, then builds a prioritized, reasoned website optimization plan for this business.",
+    icon: TrendingUp,
   },
   {
     id: "strategy",

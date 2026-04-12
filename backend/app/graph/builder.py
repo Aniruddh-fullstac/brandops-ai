@@ -21,6 +21,9 @@ def build_campaign_graph(client: AsyncOpenAI, settings: Settings):
     async def parallel_research(s: CampaignState):
         return await nodes.node_parallel_research(s, client=client, settings=settings)
 
+    async def seo_website(s: CampaignState):
+        return await nodes.node_seo_website_optimizer(s, client=client, settings=settings)
+
     async def strategy(s: CampaignState):
         return await nodes.node_strategy(s, client=client, settings=settings)
 
@@ -54,6 +57,7 @@ def build_campaign_graph(client: AsyncOpenAI, settings: Settings):
     g.add_node("ingest", ingest)
     g.add_node("brand_fetch", brand_fetch)
     g.add_node("parallel_research", parallel_research)
+    g.add_node("seo_website", seo_website)
     g.add_node("strategy", strategy)
     g.add_node("audience_segments", audience_segments)
     g.add_node("memory_resolve", memory_resolve)
@@ -68,7 +72,8 @@ def build_campaign_graph(client: AsyncOpenAI, settings: Settings):
     g.add_edge(START, "ingest")
     g.add_edge("ingest", "brand_fetch")
     g.add_edge("brand_fetch", "parallel_research")
-    g.add_edge("parallel_research", "strategy")
+    g.add_edge("parallel_research", "seo_website")
+    g.add_edge("seo_website", "strategy")
     g.add_edge("strategy", "audience_segments")
     g.add_edge("audience_segments", "memory_resolve")
     g.add_edge("memory_resolve", "creatives")

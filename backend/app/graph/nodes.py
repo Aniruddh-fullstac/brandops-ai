@@ -91,6 +91,13 @@ def _req(state: CampaignState) -> CampaignRequest:
     return CampaignRequest.model_validate(state["request"])
 
 
+def _effective_geographies(r: CampaignRequest) -> list[str]:
+    locs = [x.strip() for x in (r.locations or []) if x and str(x).strip()]
+    if locs:
+        return locs
+    return [r.geography_primary, r.geography_secondary]
+
+
 _IG_HANDLE_RE = re.compile(r"^[a-z0-9._]{1,30}$")
 
 
@@ -125,11 +132,15 @@ def _needs_refine(critique: dict[str, Any] | None, settings: Settings) -> bool:
 
 def build_node_context(state: CampaignState) -> str:
     r = _req(state)
+    markets = _effective_geographies(r)
     parts = [
         f"Brand name: {r.brand_name}",
-        f"Primary geography: {r.geography_primary}",
-        f"Secondary geography: {r.geography_secondary}",
+        f"Target market(s): {', '.join(markets)}",
     ]
+    if r.company_tagline:
+        parts.append(f"Company tagline: {r.company_tagline}")
+    if r.target_audience_hint:
+        parts.append("Target audience (client profile): " + r.target_audience_hint[:4000])
     if r.industry_hint:
         parts.append(f"Industry hint: {r.industry_hint}")
     if r.brand_url:
@@ -152,7 +163,7 @@ async def node_ingest(state: CampaignState) -> dict[str, Any]:
             _act(phase="ingest", agent="ingest_orchestrator", action="parsing",
                  detail=f"Parsing campaign brief for {r.brand_name}"),
             _act(phase="ingest", agent="ingest_orchestrator", action="configuring",
-                 detail=f"Setting target geographies: {r.geography_primary}, {r.geography_secondary}"),
+                 detail=f"Target markets: {', '.join(_effective_geographies(r))}"),
         ),
         **_trace_step(
             agent="ingest_orchestrator",
@@ -163,7 +174,8 @@ async def node_ingest(state: CampaignState) -> dict[str, Any]:
             structured={
                 "brand_name": r.brand_name,
                 "brand_url": str(r.brand_url) if r.brand_url else None,
-                "geographies": [r.geography_primary, r.geography_secondary],
+                "geographies": _effective_geographies(r),
+                "locations": list(r.locations or []),
             },
         ),
         "generate_images": r.generate_images,
@@ -924,6 +936,137 @@ def _research_digest(state: CampaignState) -> str:
     return "\n\n".join(parts)
 
 
+async def node_seo_website_optimizer(
+    state: CampaignState, *, client: AsyncOpenAI, settings: Settings
+) -> dict[str, Any]:
+    """Live web research + structured website SEO plan grounded in brand URL and business context."""
+    r = _req(state)
+    ctx = build_node_context(state)
+    digest = _research_digest(state)[:12_000]
+    markets = ", ".join(_effective_geographies(r))
+    industry = r.industry_hint or "general consumer"
+
+    _emit_live(
+        state,
+        _act(
+            phase="seo_website",
+            agent="seo_website_strategist",
+            action="web_search",
+            detail=f"Indexing current SEO guidance for {r.brand_name} ({industry}) — {markets}",
+            tool="web_search",
+        ),
+    )
+
+    research_instructions = (
+        "You are a principal technical and content SEO strategist with live web access. "
+        "Search authoritative, current sources (search engine documentation, reputable SEO references) "
+        "for guidance that applies to this company's industry, site type, and target geographies. "
+        "Cover on-page signals, technical/crawl health, structured data where relevant, content & trust (E-E-A-T), "
+        "internal linking and topic clusters, local or multi-market SEO if applicable, and practical measurement. "
+        "Be specific to this business—not a generic checklist. Note provenance in your synthesis."
+    )
+    research_prompt = (
+        f"Brand: {r.brand_name}\nIndustry: {industry}\nMarkets: {markets}\n"
+        f"Site URL: {r.brand_url or 'not provided'}\n\n"
+        "Deliver: (1) niche-relevant priorities for the next 90 days, (2) mistakes this category often makes, "
+        "(3) quick wins vs deeper initiatives, (4) multi-market/local nuances if relevant."
+    )
+    try:
+        pkt = await run_responses_web_research(
+            client=client,
+            settings=settings,
+            instructions=research_instructions,
+            user_input=(
+                research_prompt
+                + "\n\nBrand/site context:\n"
+                + ctx[:5000]
+                + "\n\nInternal research digest (grounding):\n"
+                + digest[:8000]
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001
+        err = str(exc)[:800]
+        return {
+            **_trace_step(
+                agent="seo_website_strategist",
+                phase="seo_website",
+                title="Website SEO optimization (degraded)",
+                summary="Web research unavailable; structured audit skipped.",
+                reasoning=err,
+            ),
+            "seo_website_optimization": {
+                "error": err,
+                "executive_summary": "SEO web research step failed; re-run when the search tool is available.",
+            },
+        }
+
+    research_sources = [
+        SourceRef(url=str(s.get("url", "")), title=s.get("title"))
+        for s in (pkt.sources or [])[:25]
+        if s.get("url")
+    ]
+    schema = (
+        "Return JSON only. Keys:\n"
+        "executive_summary (string, client-ready 2–4 sentences),\n"
+        "site_diagnosis (object with keys current_signals, gaps, priority_hypothesis — strings or arrays of strings),\n"
+        "technical_seo (array of objects: action, priority as high|medium|low, reasoning, how_to_verify),\n"
+        "on_page_seo (array of objects: page_or_section, recommendation, reasoning, suggested_title_or_meta_hint optional),\n"
+        "content_and_topics (array of objects: cluster_or_topic, rationale, intent, suggested_outline optional),\n"
+        "authority_and_links (array of objects: tactic, reasoning),\n"
+        "local_or_multimarket (array of objects: recommendation, reasoning — use [] if not applicable),\n"
+        "measurement (object: kpis array of strings, baseline_checks array of strings),\n"
+        "reasoning_summary (string — how web findings map to this brand),\n"
+        "risk_notes (array of strings — practices to avoid)."
+    )
+    structured = await chat_json_object(
+        client=client,
+        model=settings.openai_model,
+        system=schema,
+        user=(
+            "Primary evidence — live web research synthesis (ground major recommendations here):\n"
+            + (pkt.text or "")[:16_000]
+            + "\n\nBrand and site context:\n"
+            + ctx[:8000]
+        ),
+        temperature=0.2,
+    )
+    structured["web_research_queries_used"] = list(pkt.web_queries or [])
+    n_tech = len(structured.get("technical_seo") or [])
+
+    return {
+        **_activities(
+            _act(
+                phase="seo_website",
+                agent="seo_website_strategist",
+                action="llm_call",
+                detail=f"Prioritized {n_tech} technical SEO actions + on-page plan for {r.brand_name}",
+                tool=settings.openai_model,
+            ),
+        ),
+        **_trace_step(
+            agent="seo_website_strategist",
+            phase="seo_website",
+            title="Website SEO optimization plan",
+            summary=structured.get("executive_summary"),
+            reasoning=structured.get("reasoning_summary") or (pkt.text[:2500] if pkt.text else None),
+            sources=research_sources,
+            web_queries=list(pkt.web_queries or []),
+            tool_calls=[
+                ToolInvocation(
+                    name="web_search",
+                    args={"queries": list(pkt.web_queries or [])[:12]},
+                    result_summary=f"Synthesis {len(pkt.text or '')} chars; {len(research_sources)} sources",
+                ),
+            ],
+            structured=structured,
+            raw_text_excerpt=(
+                (pkt.text[:2000] + "…") if pkt.text and len(pkt.text) > 2000 else pkt.text
+            ),
+        ),
+        "seo_website_optimization": structured,
+    }
+
+
 async def node_strategy(state: CampaignState, *, client: AsyncOpenAI, settings: Settings) -> dict[str, Any]:
     r = _req(state)
     ctx = build_node_context(state)
@@ -937,6 +1080,12 @@ async def node_strategy(state: CampaignState, *, client: AsyncOpenAI, settings: 
         "measurement (object), reasoning_trace (array of {decision, because})."
     )
     user = ctx + "\n\nGrounding research digest:\n" + digest[:18_000]
+    seo_w = state.get("seo_website_optimization") or {}
+    if seo_w and isinstance(seo_w, dict) and not seo_w.get("error"):
+        user += (
+            "\n\nWebsite SEO findings (from live web research + brand context — align SEO/channel priorities):\n"
+            + str(seo_w)[:7000]
+        )
     _emit_live(state, _act(phase="strategy", agent="campaign_strategy_architect", action="llm_call",
                            detail=f"Building go-to-market strategy for {r.brand_name}", tool=settings.openai_model))
     structured = await chat_json_object(
@@ -1049,6 +1198,14 @@ async def node_creative_suite(state: CampaignState, *, client: AsyncOpenAI, sett
         + ig_ctx
     ) if ig_ctx else ""
 
+    seo_w = state.get("seo_website_optimization") or {}
+    seo_audit_blob = (
+        "\n\nWEBSITE SEO AUDIT (from dedicated web-research agent — keep keyword and meta recommendations consistent):\n"
+        + str(seo_w)[:8000]
+        if (isinstance(seo_w, dict) and seo_w and not seo_w.get("error"))
+        else ""
+    )
+
     seo_task = _creative_json(
         client=client,
         settings=settings,
@@ -1057,7 +1214,7 @@ async def node_creative_suite(state: CampaignState, *, client: AsyncOpenAI, sett
             "Return JSON: pillar_topics (array), cluster_map, target_keywords (array of {keyword, intent, page_type}), "
             "blog_outline (array of sections), meta_templates, internal_linking_plan, reasoning_summary."
         ),
-        user_blob=base + "\nResearch:\n" + digest + seg_blob + mem_blob + ig_instruction,
+        user_blob=base + seo_audit_blob + "\nResearch:\n" + digest + seg_blob + mem_blob + ig_instruction,
     )
     social_task = _creative_json(
         client=client,
@@ -2105,6 +2262,7 @@ async def node_finalize(state: CampaignState, *, client: AsyncOpenAI, settings: 
             "timeline": strat.get("timeline_phases"),
             "measurement": strat.get("measurement"),
         },
+        seo_website_optimization=state.get("seo_website_optimization") or {},
         seo=final_creatives.get("seo") or creatives.get("seo") or {},
         social=final_creatives.get("social") or creatives.get("social") or {},
         video_concepts=final_creatives.get("video_concepts") or creatives.get("video_concepts") or {},

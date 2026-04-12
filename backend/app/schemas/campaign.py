@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
 
 class SourceRef(BaseModel):
@@ -37,6 +37,7 @@ class AgentTraceStep(BaseModel):
         "finalize",
         "memory",
         "critic_recheck",
+        "seo_website",
     ]
     title: str
     summary: str | None = None
@@ -61,6 +62,42 @@ class CampaignRequest(BaseModel):
     geography_secondary: str = Field("India", max_length=120)
     industry_hint: str | None = Field(None, max_length=200)
     generate_images: bool = Field(True)
+    locations: list[str] = Field(
+        default_factory=list,
+        max_length=24,
+        description="Target markets / storefronts (client profile). Syncs geography_primary/secondary when set.",
+    )
+    company_tagline: str | None = Field(None, max_length=500)
+    target_audience_hint: str | None = Field(None, max_length=4000)
+
+    @field_validator("locations", mode="before")
+    @classmethod
+    def _normalize_locations(cls, v: Any) -> list[str]:
+        if v is None:
+            return []
+        if isinstance(v, str):
+            parts = [p.strip() for p in v.replace(";", ",").split(",") if p.strip()]
+            return parts[:24]
+        if isinstance(v, list):
+            out: list[str] = []
+            for x in v:
+                s = str(x).strip()
+                if s and s not in out:
+                    out.append(s)
+            return out[:24]
+        return []
+
+    @model_validator(mode="after")
+    def _sync_geographies_from_locations(self) -> CampaignRequest:
+        locs = [x.strip() for x in self.locations if x and str(x).strip()]
+        if not locs:
+            return self
+        object.__setattr__(self, "geography_primary", locs[0][:120])
+        if len(locs) >= 2:
+            object.__setattr__(self, "geography_secondary", locs[1][:120])
+        else:
+            object.__setattr__(self, "geography_secondary", locs[0][:120])
+        return self
 
 
 class CampaignArtifacts(BaseModel):
@@ -69,6 +106,10 @@ class CampaignArtifacts(BaseModel):
     competitor_landscape: dict[str, Any]
     audience_and_messaging: dict[str, Any]
     channel_strategy: dict[str, Any]
+    seo_website_optimization: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Web-researched, site-grounded SEO audit with prioritized actions and reasoning.",
+    )
     seo: dict[str, Any]
     social: dict[str, Any]
     video_concepts: dict[str, Any]

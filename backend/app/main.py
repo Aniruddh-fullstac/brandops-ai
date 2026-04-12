@@ -647,6 +647,7 @@ async def stream_campaign(
                             yield sse
                     activity_len = len(acts)
                 for artifact_key in (
+                    "seo_website_optimization",
                     "strategy",
                     "creatives",
                     "critique",

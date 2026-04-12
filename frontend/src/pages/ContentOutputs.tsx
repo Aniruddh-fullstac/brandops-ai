@@ -6,6 +6,7 @@ import { CreativeDraftDiff } from "../components/presentation/CreativeDraftDiff"
 import { CritiquePanel } from "../components/presentation/CritiquePanel";
 import { MemoryResolutionPanel } from "../components/presentation/MemoryResolutionPanel";
 import { SourceFootnotes } from "../components/presentation/SourceFootnotes";
+import { StructuredData } from "../components/presentation/StructuredData";
 import {
   PLATFORM_LABEL,
   PLATFORM_ORDER,
@@ -16,7 +17,7 @@ import {
   type ContentScheduleArtifact,
 } from "../lib/contentSchedule";
 import { collectSources, sourceMatchers } from "../lib/traceSources";
-import { Calendar, Layers, LayoutGrid, Palette, Sparkles } from "lucide-react";
+import { Calendar, Layers, LayoutGrid, Palette, Sparkles, TrendingUp } from "lucide-react";
 
 export default function ContentOutputs() {
   const { artifacts, hydrateLoading, steps } = useCampaignStore();
@@ -36,6 +37,7 @@ export default function ContentOutputs() {
   const memoryRes = (artifacts as { memory_resolution?: Record<string, unknown> }).memory_resolution;
   const deliveredSeo = (artifacts as Record<string, unknown>).seo;
   const deliveredSocial = (artifacts as Record<string, unknown>).social;
+  const seoWebsiteOpt = (artifacts as { seo_website_optimization?: Record<string, unknown> }).seo_website_optimization;
 
   const platformsPresent = useMemo(() => {
     const s = new Set<string>();
@@ -68,6 +70,11 @@ export default function ContentOutputs() {
   const showPostQa = Boolean(critiquePost && Object.keys(critiquePost).length > 0);
   const bothQaPanels = showInitialQa && showPostQa;
   const pageGutter = "w-full px-6 lg:px-10 xl:px-12";
+  const showSeoWebsite =
+    seoWebsiteOpt &&
+    typeof seoWebsiteOpt === "object" &&
+    Object.keys(seoWebsiteOpt).length > 0 &&
+    !seoWebsiteOpt.error;
 
   return (
     <div className="min-h-screen w-full bg-gradient-to-b from-slate-50/80 to-white pb-16">
@@ -135,6 +142,26 @@ export default function ContentOutputs() {
         )}
 
         {memoryRes && Object.keys(memoryRes).length > 0 && <MemoryResolutionPanel data={memoryRes} />}
+
+        {showSeoWebsite && (
+          <section className="overflow-hidden rounded-2xl border border-lime-200/90 bg-white shadow-md">
+            <div className="flex items-center gap-2 border-b border-lime-100/90 bg-lime-50/50 px-6 py-3 backdrop-blur-sm">
+              <TrendingUp size={18} className="text-lime-700" />
+              <div>
+                <h2 className="font-display text-xs font-bold uppercase tracking-widest text-lime-900">Website SEO</h2>
+                <p className="text-[11px] text-lime-800/80">Live web research + your site context — prioritized actions with reasoning</p>
+              </div>
+            </div>
+            <div className="space-y-4 px-6 py-5">
+              {typeof seoWebsiteOpt.executive_summary === "string" && seoWebsiteOpt.executive_summary.trim() && (
+                <p className="text-sm leading-relaxed text-slate-800">{seoWebsiteOpt.executive_summary}</p>
+              )}
+              <div className="max-h-[min(480px,55vh)] overflow-y-auto rounded-xl border border-slate-100 bg-slate-50/40 p-4 thin-scroll">
+                <StructuredData value={seoWebsiteOpt} />
+              </div>
+            </div>
+          </section>
+        )}
 
         {hasUnified && (
           <section>

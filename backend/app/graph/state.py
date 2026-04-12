@@ -16,6 +16,7 @@ class CampaignState(TypedDict, total=False):
     brand_page_text: str | None
     brand_page_content_type: str | None
 
+    seo_website_optimization: dict[str, Any]
     competitor_research: dict[str, Any]
     social_research: dict[str, Any]
     trends_research: dict[str, Any]
