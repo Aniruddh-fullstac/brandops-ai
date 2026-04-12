@@ -464,6 +464,16 @@ async def admin_runs(request: Request):
     return {"runs": runs}
 
 
+@app.get("/api/admin/campaigns/{campaign_id}")
+async def admin_get_campaign(campaign_id: str, request: Request):
+    """Full campaign doc for any owner — admin observability only."""
+    _require_admin(request)
+    c = await fb.get_campaign(campaign_id)
+    if not c:
+        raise HTTPException(status_code=404, detail="Not found")
+    return c
+
+
 # --- Media ---
 @app.get("/api/media/runs/{run_id}/{filename}")
 async def serve_campaign_media(run_id: str, filename: str):

@@ -37,13 +37,15 @@ const NAV_BASE = [
 ];
 
 function CampaignSwitcher() {
+  const { user } = useAuth();
   const { campaignList, campaignId, loadCampaign } = useCampaignStore();
   const [open, setOpen] = useState(false);
+  const isAdmin = isAdminEmail(user?.email ?? null);
 
-  const completed = campaignList.filter((c) => c.status === "completed");
-  const current = completed.find((c) => c.id === campaignId);
+  const selectable = isAdmin ? campaignList : campaignList.filter((c) => c.status === "completed");
+  const current = selectable.find((c) => c.id === campaignId);
 
-  if (completed.length === 0) return null;
+  if (selectable.length === 0) return null;
 
   return (
     <div className="relative px-3 py-2">
@@ -52,7 +54,9 @@ function CampaignSwitcher() {
         className="flex w-full items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left transition hover:bg-slate-100"
       >
         <div className="flex-1 min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Campaign</p>
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            {isAdmin ? "Your campaigns" : "Campaign"}
+          </p>
           <p className="truncate text-xs font-semibold text-slate-800">
             {current?.brand_name || "Select campaign"}
           </p>
@@ -62,7 +66,7 @@ function CampaignSwitcher() {
 
       {open && (
         <div className="absolute left-3 right-3 top-full z-30 mt-1 max-h-[280px] overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
-          {completed.map((c) => (
+          {selectable.map((c) => (
             <button
               key={c.id}
               onClick={() => {

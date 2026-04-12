@@ -35,6 +35,8 @@ import {
   Sparkles,
   TrendingUp,
   Workflow,
+  Loader2,
+  ListFilter,
 } from "lucide-react";
 
 const CHART_COLORS = ["#6366f1", "#8b5cf6", "#ec4899", "#14b8a6", "#f59e0b", "#3b82f6", "#10b981", "#f43f5e"];
@@ -138,10 +140,16 @@ function SectionCard({
   );
 }
 
+function shortId(id: string | undefined, runId: string | undefined) {
+  const s = (runId || id || "").replace(/-/g, "");
+  return s.slice(0, 8);
+}
+
 export default function AdminDashboard() {
-  const { steps, runId, campaignId, artifacts } = useCampaignStore();
+  const { steps, runId, campaignId, artifacts, loadCampaignAdmin, setCampaignId } = useCampaignStore();
   const [allRuns, setAllRuns] = useState<CampaignRecord[]>([]);
   const [runsError, setRunsError] = useState<string | null>(null);
+  const [campaignLoading, setCampaignLoading] = useState(false);
 
   useEffect(() => {
     setRunsError(null);
@@ -149,6 +157,34 @@ export default function AdminDashboard() {
       .then((d) => setAllRuns(d.runs || []))
       .catch((e: Error) => setRunsError(e.message || "Failed to load runs"));
   }, []);
+
+  /** Load full trace + artifacts via admin API (works for any owner). */
+  useEffect(() => {
+    if (allRuns.length === 0 || !campaignId) return;
+    if (!allRuns.some((r) => r.id === campaignId)) return;
+    let cancelled = false;
+    setCampaignLoading(true);
+    void (async () => {
+      try {
+        await loadCampaignAdmin(campaignId);
+      } finally {
+        if (!cancelled) setCampaignLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [allRuns, campaignId, loadCampaignAdmin]);
+
+  const runsSortedForPicker = useMemo(
+    () =>
+      [...allRuns].sort((a, b) => {
+        const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return tb - ta;
+      }),
+    [allRuns],
+  );
 
   const phases = [...new Set(steps.map((s) => s.phase))];
 
@@ -164,10 +200,14 @@ export default function AdminDashboard() {
   const showInitialQa = Boolean(critique && Object.keys(critique).length > 0);
   const showPostQa = Boolean(critiquePost && Object.keys(critiquePost).length > 0);
 
-  const currentRun = useMemo(
-    () => allRuns.find((r) => (campaignId && r.id === campaignId) || (runId && r.run_id === runId)) ?? null,
-    [allRuns, campaignId, runId],
-  );
+  const currentRun = useMemo(() => {
+    if (campaignId) {
+      const byId = allRuns.find((r) => r.id === campaignId);
+      if (byId) return byId;
+    }
+    if (runId) return allRuns.find((r) => r.run_id === runId) ?? null;
+    return null;
+  }, [allRuns, campaignId, runId]);
 
   const phaseChartData = useMemo(() => {
     const u = currentRun?.llm_token_usage;
@@ -195,7 +235,7 @@ export default function AdminDashboard() {
     return [...allRuns]
       .filter((r) => r.llm_token_usage?.total?.total_tokens)
       .map((r) => ({
-        name: (r.brand_name || r.run_id || "Run").slice(0, 18),
+        name: `${(r.brand_name || "Run").slice(0, 12)} ·${shortId(r.id, r.run_id)}`,
         tokens: r.llm_token_usage!.total.total_tokens,
         id: r.id,
       }))
@@ -223,10 +263,8 @@ export default function AdminDashboard() {
       .sort((a, b) => new Date(a.created_at!).getTime() - new Date(b.created_at!).getTime())
       .map((r, i) => ({
         idx: i + 1,
-        label:
-          new Date(r.created_at!).toLocaleDateString(undefined, { month: "short", day: "numeric" }) +
-          " " +
-          (r.brand_name || "").slice(0, 8),
+        id: r.id,
+        label: `${new Date(r.created_at!).toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${(r.brand_name || "").slice(0, 8)} ·${shortId(r.id, r.run_id)}`,
         tokens: r.llm_token_usage!.total.total_tokens,
       }));
   }, [allRuns]);
@@ -272,7 +310,8 @@ export default function AdminDashboard() {
           </div>
           <h1 className="mt-2 font-display text-3xl font-bold tracking-tight text-slate-900">Observability console</h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-600">
-            Token analytics, workflow visuals, critic QA, and traces for the selected campaign.
+            Token analytics, workflow visuals, critic QA, and traces for the selected campaign. Pick any run from Firestore
+            (all users).
           </p>
           {runId && (
             <p className="mt-3 font-mono text-[11px] text-slate-500">
@@ -292,6 +331,54 @@ export default function AdminDashboard() {
         {runsError && (
           <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{runsError}</div>
         )}
+
+        <div className="rounded-2xl border border-indigo-200/80 bg-gradient-to-br from-white to-indigo-50/40 p-5 shadow-sm">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-md">
+              <ListFilter size={20} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="font-display text-sm font-bold text-slate-900">Campaign scope</p>
+              <p className="text-[12px] text-slate-600">
+                Loads full trace + artifacts for any stored run. The regular `/api/campaigns` only returns your own jobs — use
+                this list for full observability.
+              </p>
+            </div>
+            {campaignLoading && <Loader2 className="h-5 w-5 shrink-0 animate-spin text-indigo-600" />}
+          </div>
+          <div className="mt-4">
+            <label htmlFor="admin-campaign-select" className="sr-only">
+              Select campaign
+            </label>
+            <select
+              id="admin-campaign-select"
+              className="w-full max-w-3xl rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-900 shadow-inner ring-indigo-100 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+              value={allRuns.some((r) => r.id === campaignId) ? (campaignId as string) : ""}
+              disabled={runsSortedForPicker.length === 0 || campaignLoading}
+              onChange={(e) => {
+                const id = e.target.value;
+                if (!id) {
+                  setCampaignId(null);
+                  return;
+                }
+                setCampaignId(id);
+              }}
+            >
+              <option value="">{runsSortedForPicker.length === 0 ? "Loading runs…" : "Choose a campaign…"}</option>
+              {runsSortedForPicker.map((r) => {
+                const tok = r.llm_token_usage?.total?.total_tokens;
+                const tokLabel = tok != null ? ` · ${tok.toLocaleString()} tok` : "";
+                const when = r.created_at ? new Date(r.created_at).toLocaleString() : "";
+                return (
+                  <option key={r.id} value={r.id}>
+                    {r.brand_name || "—"} · {r.status}
+                    {tokLabel} · {shortId(r.id, r.run_id)} · {when}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+        </div>
 
         {/* KPI strip */}
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

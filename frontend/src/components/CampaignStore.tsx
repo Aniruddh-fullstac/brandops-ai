@@ -53,6 +53,8 @@ type Store = {
   refreshFromServer: () => Promise<void>;
   /** Switch to a specific campaign by ID */
   loadCampaign: (id: string) => Promise<void>;
+  /** Load any campaign by ID (admin only — bypasses owner check; uses GET /api/admin/campaigns/:id). */
+  loadCampaignAdmin: (id: string) => Promise<void>;
 };
 
 const Ctx = createContext<Store>(null!);
@@ -119,6 +121,19 @@ export function CampaignStoreProvider({ children }: { children: ReactNode }) {
         hydrateFromRecord(full);
         rememberLastCampaignId(id);
       }
+    } catch {
+      /* ignore */
+    }
+  }, [hydrateFromRecord]);
+
+  const loadCampaignAdmin = useCallback(async (id: string) => {
+    try {
+      const full = await apiJson<CampaignRecord>(`/api/admin/campaigns/${id}`);
+      const hasTrace = Array.isArray(full.trace) && full.trace.length > 0;
+      const hasArts = Boolean(full.artifacts && hasArtifactPayload(full.artifacts));
+      if (!hasTrace && !hasArts) return;
+      hydrateFromRecord(full);
+      rememberLastCampaignId(id);
     } catch {
       /* ignore */
     }
@@ -210,6 +225,7 @@ export function CampaignStoreProvider({ children }: { children: ReactNode }) {
         reset,
         refreshFromServer,
         loadCampaign,
+        loadCampaignAdmin,
       }}
     >
       {children}
