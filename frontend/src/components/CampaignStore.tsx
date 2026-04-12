@@ -13,7 +13,8 @@ import { auth } from "../lib/firebase";
 import { GRAPH_PIPELINE } from "../workflowConfig";
 import type { AgentActivity, Artifacts, CampaignRecord, CampaignResultPayload, TraceStep } from "../types";
 
-const LAST_CAMPAIGN_KEY = "campaigngraph:lastCampaignId";
+const LAST_CAMPAIGN_KEY = "knowyourbrand:lastCampaignId";
+const LAST_CAMPAIGN_KEY_LEGACY = "campaigngraph:lastCampaignId";
 
 /** When true, `refreshFromServer` updates the campaign list but does not hydrate the last run into the UI (used on New Campaign page). */
 let skipHydrateLatestCampaign = false;
@@ -138,7 +139,7 @@ export function CampaignStoreProvider({ children }: { children: ReactNode }) {
 
       let pick = completed[0];
       try {
-        const sid = sessionStorage.getItem(LAST_CAMPAIGN_KEY);
+        const sid = sessionStorage.getItem(LAST_CAMPAIGN_KEY) ?? sessionStorage.getItem(LAST_CAMPAIGN_KEY_LEGACY);
         if (sid) {
           const hit = completed.find((c) => c.id === sid);
           if (hit) pick = hit;
@@ -221,6 +222,7 @@ export const useCampaignStore = () => useContext(Ctx);
 export function rememberLastCampaignId(id: string) {
   try {
     sessionStorage.setItem(LAST_CAMPAIGN_KEY, id);
+    sessionStorage.removeItem(LAST_CAMPAIGN_KEY_LEGACY);
   } catch {
     /* ignore */
   }

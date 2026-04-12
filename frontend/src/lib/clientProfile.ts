@@ -23,14 +23,15 @@ export type ClientProfile = {
   documents: ProfileDocument[];
 };
 
-const STORAGE_KEY = "campaigngraph:clientProfile";
+const STORAGE_KEY = "knowyourbrand:clientProfile";
+const STORAGE_KEY_LEGACY = "campaigngraph:clientProfile";
 
 export function newProfileDocumentId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
   return `doc-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-export const CLIENT_PROFILE_UPDATED = "campaigngraph:client-profile-updated";
+export const CLIENT_PROFILE_UPDATED = "knowyourbrand:client-profile-updated";
 
 export const CAMPAIGN_MODE_OPTIONS = [
   { id: "full", label: "Full pipeline", hint: "Research → strategy → creatives → schedule & delivery" },
@@ -57,7 +58,7 @@ export const defaultClientProfile = (): ClientProfile => ({
 
 export function loadClientProfile(): ClientProfile {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(STORAGE_KEY_LEGACY);
     if (!raw) return defaultClientProfile();
     const p = JSON.parse(raw) as Partial<ClientProfile>;
     const base = defaultClientProfile();
@@ -88,6 +89,11 @@ export function loadClientProfile(): ClientProfile {
 export function saveClientProfile(p: ClientProfile): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(p));
+    try {
+      localStorage.removeItem(STORAGE_KEY_LEGACY);
+    } catch {
+      /* ignore */
+    }
     window.dispatchEvent(new CustomEvent(CLIENT_PROFILE_UPDATED));
   } catch {
     /* ignore quota */
