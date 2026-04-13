@@ -237,13 +237,6 @@ export default function NewCampaign() {
   const pipelineGraphComplete =
     GRAPH_PIPELINE.length > 0 && doneCnt === GRAPH_PIPELINE.length;
 
-  /** Full-screen mind web: close shortly after the stream ends (artifacts saved). */
-  useEffect(() => {
-    if (!showMindWeb || !pipelineGraphComplete || busy) return;
-    const id = window.setTimeout(() => setShowMindWeb(false), 1600);
-    return () => window.clearTimeout(id);
-  }, [showMindWeb, pipelineGraphComplete, busy]);
-
   const locsClean = profile.locations.map((s) => s.trim()).filter(Boolean);
 
   const run = useCallback(
