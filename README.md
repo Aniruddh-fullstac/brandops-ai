@@ -47,41 +47,13 @@ Orchestrate **research**, **strategy**, **multi-channel creative**, **QA loops**
 
 High-level shape of the product: a Vite/React SPA talks to a FastAPI backend that hosts **(1)** a compiled LangGraph campaign pipeline, **(2)** a streaming chat router over registered marketing “agents,” and **(3)** media/offline services.
 
-```mermaid
-flowchart TB
-  subgraph Experience["Experience layer"]
-    SPA[React 18 + Vite + Tailwind + Framer Motion]
-    AUTH[Firebase Auth — Google SSO]
-  end
+<div align="center">
 
-  subgraph Gateway["API gateway"]
-    API[FastAPI — BrandOps AI]
-    PROXY["Dev: /api → localhost:8000"]
-  end
+<img src="./assets/brandops_architecture_diagram.svg" alt="BrandOps AI system architecture: Experience layer, API gateway, Intelligence plane, Model and data plane" width="100%" />
 
-  subgraph Intelligence["Intelligence plane"]
-    GRAPH[LangGraph — campaign state machine]
-    CHAT[Chat router + agent registry]
-    OFF[Offline — QR, events, analytics]
-  end
+<sub>Architecture diagram: <code>assets/brandops_architecture_diagram.svg</code></sub>
 
-  subgraph Providers["Model & data plane"]
-    OAI[OpenAI — chat, structured outputs, images, web tools]
-    EXT[HTTP fetch, trends, platform integrations]
-    FB[(Firebase Admin / persistence hooks)]
-  end
-
-  SPA --> AUTH
-  SPA --> PROXY --> API
-  API --> GRAPH
-  API --> CHAT
-  API --> OFF
-  GRAPH --> OAI
-  GRAPH --> EXT
-  CHAT --> OAI
-  CHAT --> EXT
-  OFF --> FB
-```
+</div>
 
 ---
 
@@ -234,8 +206,9 @@ Never commit real `.env` files or private keys.
 ```
 KnowWiz/
 ├── assets/
-│   ├── readme-hero.png              # README banner (BrandOps AI)
-│   └── campaign_workflow_diagram.svg  # Campaign workflow (README diagram)
+│   ├── readme-hero.png                   # README banner (BrandOps AI)
+│   ├── brandops_architecture_diagram.svg # System architecture (README)
+│   └── campaign_workflow_diagram.svg     # Campaign workflow (README)
 ├── backend/
 │   ├── app/
 │   │   ├── main.py                  # FastAPI app + routes
