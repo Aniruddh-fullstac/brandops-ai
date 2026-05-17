@@ -17,18 +17,18 @@ export default function Login() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-[#f4f6fb] via-indigo-50/40 to-teal-50/30 px-4 py-8">
       <Link to="/" className="mb-6 text-sm font-medium text-slate-500 transition hover:text-indigo-600">
-        ← Back to KnowYourBrand
+        ← Back to BrandOps AI
       </Link>
       <div className="w-full max-w-md space-y-8 rounded-3xl border border-slate-200 bg-white p-10 shadow-lg">
         <div className="text-center">
           <img
-            src="/assets/logo-knowyourbrand.png"
+            src="/assets/logo-brandops-ai.png"
             alt=""
             className="mx-auto mb-4 h-16 w-16 rounded-2xl object-cover shadow-lg ring-1 ring-slate-200/80"
           />
-          <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900">KnowYourBrand</h1>
+          <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900">BrandOps AI</h1>
           <p className="mt-2 text-sm text-slate-600">
-            AI-powered marketing intelligence. Sign in to access your brand dashboard.
+            Agentic marketing operations. Sign in to access your brand dashboard.
           </p>
         </div>
         <button

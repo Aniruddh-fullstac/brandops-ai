@@ -42,13 +42,13 @@ export default function Landing() {
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
           <Link to="/" className="flex items-center gap-3">
             <img
-              src="/assets/logo-knowyourbrand.png"
+              src="/assets/logo-brandops-ai.png"
               alt=""
               className="h-10 w-10 rounded-xl object-cover shadow-sm ring-1 ring-slate-200/80"
             />
             <div>
-              <p className="font-display text-base font-bold tracking-tight text-slate-900">KnowYourBrand</p>
-              <p className="text-[11px] text-slate-500">AI marketing intelligence</p>
+              <p className="font-display text-base font-bold tracking-tight text-slate-900">BrandOps AI</p>
+              <p className="text-[11px] text-slate-500">Agentic marketing operations</p>
             </div>
           </Link>
           <nav className="flex items-center gap-3">
@@ -87,7 +87,7 @@ export default function Landing() {
               Understand your brand. Ship campaigns that land.
             </motion.h1>
             <motion.p variants={heroItem} className="mt-5 text-lg leading-relaxed text-slate-600">
-              KnowYourBrand brings together research, competitors, content, and performance in one workspace—powered by
+              BrandOps AI brings together research, competitors, content, and performance in one workspace—powered by
               specialized AI agents that reason with your brief, your channels, and real market signals.
             </motion.p>
             <motion.div variants={heroItem} className="mt-8 flex flex-wrap items-center gap-4">
@@ -143,7 +143,7 @@ export default function Landing() {
         <div className="mx-auto max-w-2xl text-center">
           <h2 className="font-display text-3xl font-bold text-slate-900 sm:text-4xl">Built for modern marketing teams</h2>
           <p className="mt-4 text-slate-600">
-            From first brief to published assets, KnowYourBrand keeps strategy, creative, and measurement connected—so
+            From first brief to published assets, BrandOps AI keeps strategy, creative, and measurement connected—so
             every deliverable reflects what you learned yesterday and what you are testing tomorrow.
           </p>
         </div>
@@ -229,7 +229,7 @@ export default function Landing() {
               </ul>
             </div>
             <div className="rounded-3xl border border-slate-200 bg-gradient-to-br from-indigo-50/80 to-teal-50/50 p-8 shadow-inner">
-              <p className="text-xs font-bold uppercase tracking-wider text-indigo-600">Why teams use KnowYourBrand</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-indigo-600">Why teams use BrandOps AI</p>
               <p className="mt-4 text-lg font-semibold text-slate-900">
                 One place for the story you tell the world—and the data that proves it is working.
               </p>
@@ -254,10 +254,10 @@ export default function Landing() {
       <footer className="border-t border-slate-200 bg-[#f4f6fb]">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-6 px-4 py-12 sm:flex-row sm:px-6">
           <div className="flex items-center gap-3">
-            <img src="/assets/logo-knowyourbrand.png" alt="" className="h-9 w-9 rounded-lg object-cover" />
+            <img src="/assets/logo-brandops-ai.png" alt="" className="h-9 w-9 rounded-lg object-cover" />
             <div>
-              <p className="font-display text-sm font-bold text-slate-900">KnowYourBrand</p>
-              <p className="text-[11px] text-slate-500">© {new Date().getFullYear()} KnowYourBrand</p>
+              <p className="font-display text-sm font-bold text-slate-900">BrandOps AI</p>
+              <p className="text-[11px] text-slate-500">© {new Date().getFullYear()} BrandOps AI</p>
             </div>
           </div>
           <p className="max-w-md text-center text-xs text-slate-500 sm:text-right">

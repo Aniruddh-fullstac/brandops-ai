@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""KnowYourBrand API."""
+"""BrandOps AI API."""
 
 import asyncio
 import sys
@@ -52,7 +52,7 @@ async def lifespan(app: FastAPI):
     await app.state.openai.close()
 
 
-app = FastAPI(title="KnowYourBrand", lifespan=lifespan)
+app = FastAPI(title="BrandOps AI", lifespan=lifespan)
 _settings = get_settings()
 app.add_middleware(
     CORSMiddleware,

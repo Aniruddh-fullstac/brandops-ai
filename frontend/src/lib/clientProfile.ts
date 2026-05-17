@@ -23,7 +23,7 @@ export type ClientProfile = {
   documents: ProfileDocument[];
 };
 
-const STORAGE_KEY = "knowyourbrand:clientProfile";
+const STORAGE_KEY = "brandopsai:clientProfile";
 const STORAGE_KEY_LEGACY = "campaigngraph:clientProfile";
 
 export function newProfileDocumentId(): string {
@@ -31,7 +31,7 @@ export function newProfileDocumentId(): string {
   return `doc-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-export const CLIENT_PROFILE_UPDATED = "knowyourbrand:client-profile-updated";
+export const CLIENT_PROFILE_UPDATED = "brandopsai:client-profile-updated";
 
 export const CAMPAIGN_MODE_OPTIONS = [
   { id: "full", label: "Full pipeline", hint: "Research → strategy → creatives → schedule & delivery" },

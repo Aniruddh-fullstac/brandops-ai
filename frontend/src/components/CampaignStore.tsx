@@ -13,7 +13,7 @@ import { auth } from "../lib/firebase";
 import { GRAPH_PIPELINE } from "../workflowConfig";
 import type { AgentActivity, Artifacts, CampaignRecord, CampaignResultPayload, TraceStep } from "../types";
 
-const LAST_CAMPAIGN_KEY = "knowyourbrand:lastCampaignId";
+const LAST_CAMPAIGN_KEY = "brandopsai:lastCampaignId";
 const LAST_CAMPAIGN_KEY_LEGACY = "campaigngraph:lastCampaignId";
 
 /** When true, `refreshFromServer` updates the campaign list but does not hydrate the last run into the UI (used on New Campaign page). */

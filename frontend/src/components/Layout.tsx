@@ -115,13 +115,13 @@ export default function Layout() {
       <aside className="hidden h-full min-h-0 w-64 shrink-0 flex-col border-r border-slate-200 bg-white lg:flex">
         <div className="flex items-center gap-2.5 border-b border-slate-100 px-5 py-5">
           <img
-            src="/assets/logo-knowyourbrand.png"
+            src="/assets/logo-brandops-ai.png"
             alt=""
             className="h-9 w-9 rounded-xl object-cover shadow-sm ring-1 ring-slate-200/80"
           />
           <div>
-            <p className="font-display text-sm font-bold tracking-tight text-slate-900">KnowYourBrand</p>
-            <p className="text-[10px] text-slate-400">{isAdmin ? "Admin observability" : "AI marketing intelligence"}</p>
+            <p className="font-display text-sm font-bold tracking-tight text-slate-900">BrandOps AI</p>
+            <p className="text-[10px] text-slate-400">{isAdmin ? "Admin observability" : "Agentic marketing operations"}</p>
           </div>
         </div>
 
@@ -172,8 +172,8 @@ export default function Layout() {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <header className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 py-3 lg:hidden">
           <div className="flex items-center gap-2">
-            <img src="/assets/logo-knowyourbrand.png" alt="" className="h-8 w-8 rounded-lg object-cover" />
-            <span className="font-display text-sm font-bold text-slate-900">KnowYourBrand</span>
+            <img src="/assets/logo-brandops-ai.png" alt="" className="h-8 w-8 rounded-lg object-cover" />
+            <span className="font-display text-sm font-bold text-slate-900">BrandOps AI</span>
           </div>
           <div className="flex gap-2 overflow-x-auto">
             {navItems.slice(0, 6).map((n) => (
