@@ -111,9 +111,9 @@ The **campaign graph** is a `StateGraph` over `CampaignState`: each node is an a
 
 <div align="center">
 
-<img src="./assets/campaign-pipeline-flow.png" alt="BrandOps AI campaign pipeline: research and strategy spine, creative and QA loop, parallel enrichment and delivery" width="560" />
+<img src="./assets/campaign_workflow_diagram.svg" alt="BrandOps AI — campaign workflow (LangGraph): parallel research lanes, creative review, delivery and refine loop" width="520" />
 
-<sub>Compiled LangGraph in <code>backend/app/graph/builder.py</code> — Research &amp; strategy spine, creative &amp; quality, then enrichment and delivery.</sub>
+<sub>Workflow diagram: <code>assets/campaign_workflow_diagram.svg</code>. Compiled graph: <code>backend/app/graph/builder.py</code>. Parallel lanes are <strong>diagrammatic</strong>; see the stage table above for exact node order in code.</sub>
 
 </div>
 
@@ -235,7 +235,7 @@ Never commit real `.env` files or private keys.
 KnowWiz/
 ├── assets/
 │   ├── readme-hero.png              # README banner (BrandOps AI)
-│   └── campaign-pipeline-flow.png   # Campaign graph control-flow diagram
+│   └── campaign_workflow_diagram.svg  # Campaign workflow (README diagram)
 ├── backend/
 │   ├── app/
 │   │   ├── main.py                  # FastAPI app + routes
