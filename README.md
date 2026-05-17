@@ -109,39 +109,13 @@ The **campaign graph** is a `StateGraph` over `CampaignState`: each node is an a
 
 ### Control-flow diagram
 
-```mermaid
-flowchart TB
-  subgraph Research["Research & strategy spine"]
-    ING[ingest]
-    BF[brand_fetch]
-    PR[parallel_research]
-    SEO[seo_website]
-    ST[strategy]
-    AUD[audience_segments]
-    MEM[memory_resolve]
-  end
+<div align="center">
 
-  subgraph Creative["Creative & quality"]
-    CR[creatives]
-    CT[critic]
-    RF[refine]
-    RC[critic_recheck]
-  end
+<img src="./assets/campaign-pipeline-flow.png" alt="BrandOps AI campaign pipeline: research and strategy spine, creative and QA loop, parallel enrichment and delivery" width="560" />
 
-  subgraph Parallel["Parallel enrichment & delivery"]
-    PCP[post_critic_parallel]
-    PSB[parallel_schedule_bundle]
-    FN[finalize]
-  end
+<sub>Compiled LangGraph in <code>backend/app/graph/builder.py</code> — Research &amp; strategy spine, creative &amp; quality, then enrichment and delivery.</sub>
 
-  START([START]) --> ING
-  ING --> BF --> PR --> SEO --> ST --> AUD --> MEM --> CR --> CT
-  CT --> RF --> RC
-  RC -->|below bar; rounds left| RF
-  RC -->|pass or cap| PCP
-  PCP --> PSB --> FN
-  FN --> END([END])
-```
+</div>
 
 **Parallel internals (backend):**
 
@@ -260,7 +234,8 @@ Never commit real `.env` files or private keys.
 ```
 KnowWiz/
 ├── assets/
-│   └── readme-hero.png              # README banner (BrandOps AI)
+│   ├── readme-hero.png              # README banner (BrandOps AI)
+│   └── campaign-pipeline-flow.png   # Campaign graph control-flow diagram
 ├── backend/
 │   ├── app/
 │   │   ├── main.py                  # FastAPI app + routes
